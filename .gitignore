@@ -1,0 +1,28 @@
+# Python virtual environment
+/env/
+/venv/
+/.env/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+
+# Jupyter & Streamlit generated files
+.ipynb_checkpoints/
+.streamlit/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Sensitive financial data
+data/*.csv
+data/*.CSV
+data/*.db
+!data/demo.csv
+
+# IDE files
+.vscode/
+.idea/

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(make test:*)",
+      "Bash(PYTHONPATH=. env/bin/pytest tests/test_data_ingestion.py::TestTransactionParser::test_auto_categorization_logic -v)",
+      "Bash(make fmt:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
