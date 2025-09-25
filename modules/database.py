@@ -2,7 +2,7 @@ import hashlib
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 
@@ -29,6 +29,8 @@ def get_connection():
             category TEXT,
             category_source TEXT DEFAULT 'auto',
             raw_description TEXT,
+            exclude_from_budget BOOLEAN DEFAULT 0,
+            manual_notes TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -66,6 +68,7 @@ def get_connection():
         ("Entertainment", "#FFD700"),
         ("Fees & adjustments", "#FF4500"),
         ("Income", "#00FF00"),
+        ("Transfers", "#A9A9A9"),
         ("Other", "#808080"),
     ]
 
@@ -135,7 +138,7 @@ def get_transactions_by_month(year: int, month: int) -> pd.DataFrame:
 
 
 def get_spending_by_category(year: int, month: int) -> pd.DataFrame:
-    """Get spending totals by category for a month (excluding income)."""
+    """Get spending totals by category for a month (excluding income and transfers)."""
     conn = get_connection()
 
     query = """
@@ -147,6 +150,7 @@ def get_spending_by_category(year: int, month: int) -> pd.DataFrame:
         WHERE strftime('%Y', date) = ?
         AND strftime('%m', date) = ?
         AND amount < 0
+        AND category != 'Transfers'
         GROUP BY category
         ORDER BY total_spent DESC
     """
@@ -194,3 +198,49 @@ def get_accounts() -> List[str]:
     accounts = [row[0] for row in cursor.fetchall()]
     conn.close()
     return accounts
+
+
+def update_transaction_override(
+    transaction_id: str,
+    exclude_from_budget: Optional[bool] = None,
+    manual_notes: Optional[str] = None,
+    new_category: Optional[str] = None,
+) -> bool:
+    """Update transaction with manual overrides."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    updates = []
+    params = []
+
+    if exclude_from_budget is not None:
+        updates.append("exclude_from_budget = ?")
+        params.append(exclude_from_budget)
+
+    if manual_notes is not None:
+        updates.append("manual_notes = ?")
+        params.append(manual_notes)
+
+    if new_category is not None:
+        updates.append("category = ?")
+        updates.append("category_source = 'manual'")
+        params.append(new_category)
+
+    if not updates:
+        conn.close()
+        return False
+
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(transaction_id)
+
+    query = f"""
+        UPDATE transactions
+        SET {', '.join(updates)}
+        WHERE id = ?
+    """
+
+    cursor.execute(query, params)
+    success = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return success

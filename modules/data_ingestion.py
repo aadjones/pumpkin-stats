@@ -202,11 +202,15 @@ class TransactionParser:
             institution_category = row.get("Category", "")
             description = row.get("Description", "")
 
+            # Skip credit card payments (positive amounts that are just payment processing)
+            desc_upper = description.upper()
+            if amount > 0 and any(word in desc_upper for word in ["PAYMENT", "BILL PA", "AUTOPAY", "ONLINE PMT"]):
+                continue  # Skip credit card payments to avoid double counting
+
             # Normalize category - but also check description for pet stores
             category = self.category_mapper.normalize_category(institution_category)
 
             # Override category if description matches pet patterns
-            desc_upper = description.upper()
             if any(word in desc_upper for word in ["PETCO", "PETSMART", "VET", "ANIMAL HOSPITAL"]):
                 category = "Pumpkin"
 
@@ -245,10 +249,30 @@ class TransactionParser:
         # Income patterns (regardless of amount sign, check transaction type and description)
         if txn_type in ["DIRECTDEP", "CREDIT"] or "PAYROLL" in desc_upper:
             return "Income"
-        elif "ZELLE" in desc_upper or "VENMO" in desc_upper:
-            return "Income"
+        elif ("ZELLE" in desc_upper or "VENMO" in desc_upper) and amount > 0:
+            return "Income"  # Only positive Zelle/Venmo are income
         elif amount > 0:  # Other positive amounts
             return "Income"
+
+        # For negative Zelle/Venmo, let them fall through to be categorized as regular spending
+        # unless they have explicit transfer language
+
+        # Transfer/Payment patterns (should not count as spending)
+        # Be very conservative - only obvious credit card payments and bank transfers
+        transfer_keywords = [
+            "ONLINE TRANSFER",
+            "RECURRING TRANSFER",
+            "XFER TRANSFER",
+            "CREDIT CRD EPAY",
+            "CARD SERV",
+            "ONLINE PMT",
+            "AUTO PMT",
+            "DISCOVER E-PAYMENT",
+            "CHASE CARD SERV",
+            "CHASE CREDIT CRD",
+        ]
+        if any(keyword in desc_upper for keyword in transfer_keywords):
+            return "Transfers"
 
         # Debits/Spending patterns
 
