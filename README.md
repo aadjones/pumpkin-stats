@@ -4,14 +4,33 @@ Streamlit dashboard for household finance tracking and analysis. Automatically p
 
 ## Setup
 
+### macOS/Linux
 ```bash
 make setup    # Bootstrap environment, install dependencies
 make dev      # Run dashboard locally
 ```
 
+### Windows
+```powershell
+.\run.ps1 setup    # Bootstrap environment, install dependencies
+.\run.ps1 dev      # Run dashboard locally
+```
+
+**Note for Windows users:** If the PowerShell script doesn't run due to execution policy restrictions, use one of these options:
+
+**Option 1 - Run once with bypass:**
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run.ps1 setup
+```
+
+**Option 2 - Allow local scripts permanently (recommended):**
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
 ## Usage
 
-1. Run `make dev` to start the dashboard
+1. Run `make dev` (macOS/Linux) or `.\run.ps1 dev` (Windows) to start the dashboard
 2. Upload CSV files from your bank/credit card accounts via the sidebar
 3. Select a month to view spending analysis and transaction details
 4. Review and edit transaction categories as needed

@@ -6,19 +6,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Setup (one-time bootstrap):**
 ```bash
+# macOS/Linux
 make setup  # Creates env/, installs deps, git init, pre-commit install
+
+# Windows
+.\run.ps1 setup  # Creates env/, installs deps, git init, pre-commit install
 ```
 
 **Development workflow:**
 ```bash
+# macOS/Linux
 make dev    # Run Streamlit app locally (streamlit run app.py)
 make fmt    # Auto-format with isort & black
 make test   # Run pytest suite
+
+# Windows
+.\run.ps1 dev    # Run Streamlit app locally (streamlit run app.py)
+.\run.ps1 fmt    # Auto-format with isort & black
+.\run.ps1 test   # Run pytest suite
 ```
 
 **Single test:**
 ```bash
+# macOS/Linux
 PYTHONPATH=. env/bin/pytest tests/test_charts.py::test_line_chart -v
+
+# Windows (PowerShell)
+$env:PYTHONPATH="."; .\env\Scripts\activate.ps1; pytest tests/test_charts.py::test_line_chart -v
 ```
 
 ## Architecture Overview
