@@ -10,7 +10,8 @@
       "WebSearch",
       "Bash(find:*)",
       "Bash(env/bin/pip show:*)",
-      "Bash(env/bin/pip install:*)"
+      "Bash(env/bin/pip install:*)",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": [],
     "ask": []

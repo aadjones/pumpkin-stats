@@ -22,19 +22,18 @@ def render_monthly_transactions_tab():
         st.header("Select Month")
 
         # Get available months from database
-        conn = database.get_connection()
-        available_months = conn.execute(
+        with database.get_connection() as conn:
+            available_months = conn.execute(
+                """
+                SELECT DISTINCT
+                    strftime('%Y', date) as year,
+                    strftime('%m', date) as month,
+                    COUNT(*) as count
+                FROM transactions
+                GROUP BY strftime('%Y', date), strftime('%m', date)
+                ORDER BY year DESC, month DESC
             """
-            SELECT DISTINCT
-                strftime('%Y', date) as year,
-                strftime('%m', date) as month,
-                COUNT(*) as count
-            FROM transactions
-            GROUP BY strftime('%Y', date), strftime('%m', date)
-            ORDER BY year DESC, month DESC
-        """
-        ).fetchall()
-        conn.close()
+            ).fetchall()
 
         if not available_months:
             st.info("Upload CSV files above to get started")
@@ -308,7 +307,9 @@ def _render_file_upload_sidebar():
 
                     for uploaded_file in new_files:
                         # Save uploaded file temporarily
-                        temp_path = f"/tmp/{uploaded_file.name}"
+                        import tempfile
+
+                        temp_path = tempfile.mktemp(suffix=".csv")
                         with open(temp_path, "wb") as f:
                             f.write(uploaded_file.getbuffer())
 
@@ -317,29 +318,12 @@ def _render_file_upload_sidebar():
                             transactions = data_ingestion.process_csv_file(Path(temp_path))
 
                             if transactions:
-                                # Insert transactions into database
-                                conn = database.get_connection()
-                                for txn in transactions:
-                                    conn.execute(
-                                        """
-                                        INSERT OR IGNORE INTO transactions
-                                        (date, description, amount, account, category, raw_description)
-                                        VALUES (?, ?, ?, ?, ?, ?)
-                                    """,
-                                        (
-                                            txn["date"],
-                                            txn["description"],
-                                            txn["amount"],
-                                            txn["account"],
-                                            txn["category"],
-                                            txn["raw_description"],
-                                        ),
-                                    )
-                                conn.commit()
-                                conn.close()
-
-                                total_new_transactions += len(transactions)
-                                st.success(f"✅ Processed {uploaded_file.name}: {len(transactions)} transactions")
+                                # Insert transactions into database using the proper function
+                                new_count = database.insert_transactions(transactions)
+                                total_new_transactions += new_count
+                                st.success(
+                                    f"✅ Processed {uploaded_file.name}: {new_count} new transactions ({len(transactions)} total)"
+                                )
                             else:
                                 st.warning(f"⚠️ No valid transactions found in {uploaded_file.name}")
 

@@ -16,10 +16,9 @@ class TrendAnalyzer:
 
     def get_monthly_trends(self, months: int = 12) -> pd.DataFrame:
         """Get monthly spending, income, and net trends over the last N months."""
-        conn = database.get_connection()
-
-        # Get monthly summaries for the last N months
-        query = f"""
+        with database.get_connection() as conn:
+            # Get monthly summaries for the last N months
+            query = f"""
             SELECT
                 strftime('%Y', date) as year,
                 strftime('%m', date) as month,
@@ -53,8 +52,7 @@ class TrendAnalyzer:
             ORDER BY year DESC, month DESC
         """
 
-        results = conn.execute(query).fetchall()
-        conn.close()
+            results = conn.execute(query).fetchall()
 
         if not results:
             return pd.DataFrame()
@@ -74,10 +72,9 @@ class TrendAnalyzer:
 
     def get_top_category_trends(self, months: int = 12, top_n: int = 5) -> pd.DataFrame:
         """Get spending trends for top N spending categories over the last N months."""
-        conn = database.get_connection()
-
-        # First, get the top spending categories overall
-        top_categories_query = f"""
+        with database.get_connection() as conn:
+            # First, get the top spending categories overall
+            top_categories_query = f"""
             SELECT category, SUM(abs(amount)) as total_spending
             FROM transactions
             WHERE date >= date('now', '-{months} months')
@@ -89,16 +86,15 @@ class TrendAnalyzer:
             LIMIT {top_n}
         """
 
-        top_categories_result = conn.execute(top_categories_query).fetchall()
-        if not top_categories_result:
-            conn.close()
-            return pd.DataFrame()
+            top_categories_result = conn.execute(top_categories_query).fetchall()
+            if not top_categories_result:
+                return pd.DataFrame()
 
-        top_categories = [row[0] for row in top_categories_result]
-        category_list = "'" + "', '".join(top_categories) + "'"
+            top_categories = [row[0] for row in top_categories_result]
+            category_list = "'" + "', '".join(top_categories) + "'"
 
-        # Now get monthly trends for these categories
-        trends_query = f"""
+            # Now get monthly trends for these categories
+            trends_query = f"""
             SELECT
                 strftime('%Y-%m', date) as month_key,
                 strftime('%Y', date) as year,
@@ -114,8 +110,7 @@ class TrendAnalyzer:
             ORDER BY year ASC, month ASC, spending DESC
         """
 
-        results = conn.execute(trends_query).fetchall()
-        conn.close()
+            results = conn.execute(trends_query).fetchall()
 
         if not results:
             return pd.DataFrame()

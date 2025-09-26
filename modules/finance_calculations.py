@@ -210,39 +210,35 @@ def reclassify_transfers():
     Clean up transfer categorization based on proper accounting principles.
     This should be run once to fix existing data.
     """
-    conn = database.get_connection()
+    with database.get_connection() as conn:
+        # Credit card payments should be marked as transfers
+        credit_payment_keywords = [
+            "CARD SERV",
+            "CREDIT CRD",
+            "EPAY",
+            "E-PAYMENT",
+            "ONLINE PMT",
+            "AUTO PMT",
+            "PAYMENT THANK YOU",
+        ]
 
-    # Credit card payments should be marked as transfers
-    credit_payment_keywords = [
-        "CARD SERV",
-        "CREDIT CRD",
-        "EPAY",
-        "E-PAYMENT",
-        "ONLINE PMT",
-        "AUTO PMT",
-        "PAYMENT THANK YOU",
-    ]
+        # Account transfers should be marked as transfers
+        transfer_keywords = ["ONLINE TRANSFER", "XFER TRANSFER", "RECURRING TRANSFER", "TRANSFER TO", "TRANSFER FROM"]
 
-    # Account transfers should be marked as transfers
-    transfer_keywords = ["ONLINE TRANSFER", "XFER TRANSFER", "RECURRING TRANSFER", "TRANSFER TO", "TRANSFER FROM"]
+        # Build the update query
+        all_keywords = credit_payment_keywords + transfer_keywords
+        conditions = " OR ".join([f"UPPER(description) LIKE '%{keyword}%'" for keyword in all_keywords])
 
-    # Build the update query
-    all_keywords = credit_payment_keywords + transfer_keywords
-    conditions = " OR ".join([f"UPPER(description) LIKE '%{keyword}%'" for keyword in all_keywords])
+        # Update transactions to be transfers
+        update_query = f"""
+            UPDATE transactions
+            SET category = 'Transfers', category_source = 'auto'
+            WHERE ({conditions})
+            AND category != 'Transfers'
+        """
 
-    # Update transactions to be transfers
-    update_query = f"""
-        UPDATE transactions
-        SET category = 'Transfers', category_source = 'auto'
-        WHERE ({conditions})
-        AND category != 'Transfers'
-    """
-
-    cursor = conn.cursor()
-    cursor.execute(update_query)
-    updated_count = cursor.rowcount
-
-    conn.commit()
-    conn.close()
+        cursor = conn.cursor()
+        cursor.execute(update_query)
+        updated_count = cursor.rowcount
 
     return updated_count

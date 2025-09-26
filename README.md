@@ -1,14 +1,12 @@
 # Pumpkin Stats - Personal Finance Dashboard
 
-Streamlit dashboard for household finance tracking and analysis. Automatically processes bank and credit card CSV exports, categorizes transactions, and provides spending insights.
+Streamlit dashboard for household finance tracking and analysis. Automatically processes bank and credit card CSV exports, categorizes transactions, and provides spending insights. The money must be optimized so that Pumpkin can be fed!
 
 ## Setup
 
 ```bash
 make setup    # Bootstrap environment, install dependencies
 make dev      # Run dashboard locally
-make test     # Run test suite
-make fmt      # Format code
 ```
 
 ## Usage
