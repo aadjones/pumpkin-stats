@@ -21,7 +21,9 @@ __pycache__/
 data/*.csv
 data/*.CSV
 data/*.db
+data/*.xlsx
 !data/demo.csv
+
 
 # IDE files
 .vscode/

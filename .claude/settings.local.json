@@ -9,7 +9,8 @@
       "Bash(sqlite3:*)",
       "WebSearch",
       "Bash(find:*)",
-      "Bash(env/bin/pip show:*)"
+      "Bash(env/bin/pip show:*)",
+      "Bash(env/bin/pip install:*)"
     ],
     "deny": [],
     "ask": []

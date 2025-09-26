@@ -147,23 +147,22 @@ with st.sidebar:
     conn.close()
 
     if available_months:
-        # Create month options
+        # Create month options as simple strings
         month_options = []
         for year, month, count in available_months:
             date_obj = datetime(int(year), int(month), 1)
-            month_options.append((f"{date_obj.strftime('%B %Y')} ({count} transactions)", int(year), int(month)))
+            display_name = f"{date_obj.strftime('%B %Y')} ({count} transactions)"
+            month_options.append((display_name, int(year), int(month)))
 
-        # Default to first available month (most recent)
-        default_option = month_options[0]
+        # Get display names for selectbox
+        display_names = [option[0] for option in month_options]
 
-        selected_option = st.selectbox("Choose month:", options=month_options, format_func=lambda x: x[0])
+        selected_index = st.selectbox(
+            "Choose month:", options=range(len(display_names)), format_func=lambda x: display_names[x]
+        )
 
-        if selected_option:
-            current_year = selected_option[1]
-            current_month = selected_option[2]
-        else:
-            st.error("No valid month selected")
-            st.stop()
+        current_year = month_options[selected_index][1]
+        current_month = month_options[selected_index][2]
     else:
         st.info("Upload CSV files above to get started")
         st.stop()
@@ -187,7 +186,9 @@ with col2:
     st.metric("Total Income", f"${income:,.2f}")
 
 with col3:
-    st.metric("Net", f"${net:,.2f}", delta=f"${net:,.2f}")
+    # Show net with appropriate coloring: green for positive, red for negative
+    net_color = "🟢" if net >= 0 else "🔴"
+    st.metric("Net", f"{net_color} ${net:,.2f}")
 
 # Category breakdown
 st.subheader("Spending by Category")
@@ -212,77 +213,75 @@ else:
 # Transaction Management
 st.subheader("Transaction Management")
 
-with st.expander("📝 Review & Edit Transactions", expanded=False):
-    st.write("**Click on any transaction to edit its category or exclude it from budget calculations**")
+# Make transaction editing primary - no expander needed
+st.write("📝 **Review & Edit Transactions**")
+st.write("**Click on any transaction to edit its category or exclude it from budget calculations**")
 
-    # Show all transactions for the month with edit controls
-    if not transactions_df.empty:
-        # Sort by date descending, amount descending for better UX
-        display_transactions = transactions_df.sort_values(["date", "amount"], ascending=[False, True])
+# Show all transactions for the month with edit controls
+if not transactions_df.empty:
+    # Sort by date descending, amount descending for better UX
+    display_transactions = transactions_df.sort_values(["date", "amount"], ascending=[False, True])
 
-        st.write(
-            f"**{len(display_transactions)} transactions found for {datetime(current_year, current_month, 1).strftime('%B %Y')}**"
-        )
+    st.write(
+        f"**{len(display_transactions)} transactions found for {datetime(current_year, current_month, 1).strftime('%B %Y')}**"
+    )
 
-        # Create editable dataframe
-        edited_df = st.data_editor(
-            display_transactions[
-                ["id", "date", "description", "amount", "account", "category", "exclude_from_budget", "manual_notes"]
-            ],
-            column_config={
-                "id": st.column_config.TextColumn("ID", width="small", disabled=True),
-                "date": st.column_config.DateColumn("Date", width="small", disabled=True),
-                "description": st.column_config.TextColumn("Description", width="large", disabled=True),
-                "amount": st.column_config.NumberColumn("Amount", format="$%.2f", width="small", disabled=True),
-                "account": st.column_config.TextColumn("Account", width="medium", disabled=True),
-                "category": st.column_config.SelectboxColumn(
-                    "Category", options=database.get_categories(), width="medium"
-                ),
-                "exclude_from_budget": st.column_config.CheckboxColumn(
-                    "Exclude from Budget",
-                    help="Check to exclude this transaction from income/spending calculations",
-                    width="small",
-                ),
-                "manual_notes": st.column_config.TextColumn(
-                    "Notes", help="Add notes about why you changed this transaction", width="medium"
-                ),
-            },
-            hide_index=True,
-            width="stretch",
-            key="transaction_editor",
-        )
+    # Create editable dataframe
+    edited_df = st.data_editor(
+        display_transactions[
+            ["date", "description", "amount", "account", "category", "exclude_from_budget", "manual_notes"]
+        ],
+        column_config={
+            "date": st.column_config.DateColumn("Date", width="small", disabled=True),
+            "description": st.column_config.TextColumn("Description", width="large", disabled=True),
+            "amount": st.column_config.NumberColumn("Amount", format="$%.2f", width="small", disabled=True),
+            "account": st.column_config.TextColumn("Account", width="medium", disabled=True),
+            "category": st.column_config.SelectboxColumn("Category", options=database.get_categories(), width="medium"),
+            "exclude_from_budget": st.column_config.CheckboxColumn(
+                "Exclude from Budget",
+                help="Check to exclude this transaction from income/spending calculations",
+                width="small",
+            ),
+            "manual_notes": st.column_config.TextColumn(
+                "Notes", help="Add notes about why you changed this transaction", width="medium"
+            ),
+        },
+        hide_index=True,
+        width="stretch",
+        key="transaction_editor",
+    )
 
-        # Save changes button
-        if st.button("💾 Save Changes", type="primary"):
-            changes_made = 0
+    # Save changes button
+    if st.button("💾 Save Changes", type="primary"):
+        changes_made = 0
 
-            # Compare original vs edited data
-            for idx, (_, original_row) in enumerate(display_transactions.iterrows()):
-                edited_row = edited_df.iloc[idx]
-                transaction_id = edited_row["id"]
+        # Compare original vs edited data
+        for idx, (_, original_row) in enumerate(display_transactions.iterrows()):
+            edited_row = edited_df.iloc[idx]
+            transaction_id = original_row["id"]  # Get ID from original data since we removed it from editor
 
-                # Check what changed with robust boolean handling
-                category_changed = original_row["category"] != edited_row["category"]
+            # Check what changed with robust boolean handling
+            category_changed = original_row["category"] != edited_row["category"]
 
-                # Normalize boolean values for comparison
-                original_exclude = _normalize_boolean_value(original_row.get("exclude_from_budget", False))
-                edited_exclude = _normalize_boolean_value(edited_row["exclude_from_budget"])
-                exclude_changed = original_exclude != edited_exclude
+            # Normalize boolean values for comparison
+            original_exclude = _normalize_boolean_value(original_row.get("exclude_from_budget", False))
+            edited_exclude = _normalize_boolean_value(edited_row["exclude_from_budget"])
+            exclude_changed = original_exclude != edited_exclude
 
-                notes_changed = original_row.get("manual_notes", "") != edited_row["manual_notes"]
+            notes_changed = original_row.get("manual_notes", "") != edited_row["manual_notes"]
 
-                if category_changed or exclude_changed or notes_changed:
-                    success = database.update_transaction_override(
-                        transaction_id,
-                        exclude_from_budget=edited_exclude,
-                        manual_notes=edited_row["manual_notes"],
-                        new_category=str(edited_row["category"]) if category_changed else None,
-                    )
-                    if success:
-                        changes_made += 1
+            if category_changed or exclude_changed or notes_changed:
+                success = database.update_transaction_override(
+                    transaction_id,
+                    exclude_from_budget=edited_exclude,
+                    manual_notes=edited_row["manual_notes"],
+                    new_category=str(edited_row["category"]) if category_changed else None,
+                )
+                if success:
+                    changes_made += 1
 
-            if changes_made > 0:
-                st.success(f"✅ Updated {changes_made} transactions")
-                st.rerun()
-            else:
-                st.info("No changes detected")
+        if changes_made > 0:
+            st.success(f"✅ Updated {changes_made} transactions")
+            st.rerun()
+        else:
+            st.info("No changes detected")
