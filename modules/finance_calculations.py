@@ -8,11 +8,12 @@ Key principles:
 4. Synthesize all accounts for household view
 """
 
-from typing import Tuple
+from typing import Dict, Tuple
 
 import pandas as pd
 
 from . import database
+from .transaction_overrides import TransactionOverrideManager
 
 
 def _normalize_boolean_column(series: pd.Series) -> pd.Series:
@@ -55,106 +56,51 @@ def _normalize_boolean_column(series: pd.Series) -> pd.Series:
     return series.apply(normalize_value)
 
 
-def get_household_finances(year: int, month: int) -> Tuple[float, float, float, pd.DataFrame]:
+def get_household_finances(year: int, month: int) -> Tuple[float, float, float, pd.DataFrame, Dict]:
     """
     Get household finances following proper accounting principles.
 
     Returns:
-        spending, income, net, transactions_df
+        spending, income, net, transactions_df, breakdown_info
     """
-    # Get all transactions for the month
-    transactions_df = database.get_transactions_by_month(year, month)
+    override_manager = TransactionOverrideManager()
 
-    if transactions_df.empty:
-        return 0.0, 0.0, 0.0, transactions_df
+    # Get transactions with overrides applied
+    budget_transactions = override_manager.get_budget_transactions(year, month)
+    all_transactions = override_manager.get_effective_transactions(year, month)
 
-    # Normalize exclude_from_budget column to handle NULLs and edge cases
-    transactions_df["exclude_from_budget"] = _normalize_boolean_column(transactions_df["exclude_from_budget"])
+    if budget_transactions.empty:
+        breakdown = override_manager.get_calculation_breakdown(year, month)
+        return 0.0, 0.0, 0.0, all_transactions, breakdown
 
-    # SPENDING = negative amounts that are NOT transfers and NOT manually excluded
-    # This includes:
-    # - Credit card purchases (groceries, gas, restaurants, etc.)
-    # - Bank account debits for actual purchases
-    # - Interest charges, fees for services
-    spending_transactions = transactions_df[
-        (transactions_df["amount"] < 0)
-        & (~transactions_df["category"].isin(["Transfers", "Credit Card Payment"]))
-        & (~transactions_df["exclude_from_budget"])
-    ]
+    # SPENDING = negative amounts that are included in budget
+    # This automatically excludes transfers and manually excluded items
+    spending_transactions = budget_transactions[budget_transactions["amount"] < 0]
     spending = abs(spending_transactions["amount"].sum())
 
-    # INCOME = positive amounts that are actual income
-    # This includes:
-    # - Paychecks, deposits
-    # - Cashback, refunds
-    # - Interest earned
-    # Excludes transfers between accounts
-
-    # First, exclude obvious transfers and manually excluded transactions
-    income_transactions = transactions_df[
-        (transactions_df["amount"] > 0)
-        & (~transactions_df["category"].isin(["Transfers", "Credit Card Payment"]))
-        & (~transactions_df["exclude_from_budget"])
-    ]
-
-    # Use whitelist approach: only count transactions that are clearly income
-    # Based on Dara's data, legitimate income includes:
-    # - Payroll (DIRECT DEP, PAYROLL)
-    # - Cashback and refunds from credit cards
-    # - Work reimbursements
-    # - Gifts received
-
-    income_patterns = [
-        "PAYROLL",
-        "DIRECT DEP",
-        "DIRECTDEP",
-        "REIMBURS",
-        "REFUND",
-        "CASHBACK",
-        "CASH BACK",
-        "GIFT",
-        "BONUS",
-        "INTEREST",
-    ]
-
-    # Filter to only include clear income patterns
-    legitimate_income = income_transactions[
-        income_transactions["description"].str.upper().str.contains("|".join(income_patterns), regex=True, na=False)
-    ]
-
-    # Also include small positive amounts from credit cards (likely cashback/refunds)
-    credit_card_income = income_transactions[
-        (income_transactions["account"].str.contains("Credit", case=False))
-        & (income_transactions["amount"] < 100)  # Small amounts likely cashback
-    ]
-
-    # Combine legitimate income sources
-    all_income = pd.concat([legitimate_income, credit_card_income]).drop_duplicates()
-
-    income = all_income["amount"].sum()
+    # INCOME = use override manager's filtered income logic (whitelist + manual inclusions)
+    income_transactions = override_manager.get_filtered_income_transactions(year, month)
+    income = income_transactions["amount"].sum() if not income_transactions.empty else 0.0
 
     # NET = income - spending
     net = income - spending
 
-    return spending, income, net, transactions_df
+    # Get calculation breakdown for transparency
+    breakdown = override_manager.get_calculation_breakdown(year, month)
+
+    return spending, income, net, all_transactions, breakdown
 
 
 def get_spending_by_category(year: int, month: int) -> pd.DataFrame:
     """Get spending breakdown by category, excluding transfers."""
-    transactions_df = database.get_transactions_by_month(year, month)
+    override_manager = TransactionOverrideManager()
+    budget_transactions = override_manager.get_budget_transactions(year, month)
 
-    if transactions_df.empty:
+    if budget_transactions.empty:
         return pd.DataFrame()
 
-    # Normalize exclude_from_budget column to handle NULLs and edge cases
-    transactions_df["exclude_from_budget"] = _normalize_boolean_column(transactions_df["exclude_from_budget"])
-
-    # Only include actual spending (negative amounts, not transfers, not excluded)
-    spending_transactions = transactions_df[
-        (transactions_df["amount"] < 0)
-        & (~transactions_df["category"].isin(["Transfers", "Credit Card Payment"]))
-        & (~transactions_df["exclude_from_budget"])
-    ]
+    # Only include actual spending (negative amounts)
+    spending_transactions = budget_transactions[budget_transactions["amount"] < 0]
 
     if spending_transactions.empty:
         return pd.DataFrame()
@@ -174,28 +120,18 @@ def get_spending_by_category(year: int, month: int) -> pd.DataFrame:
 
 def get_account_breakdown(year: int, month: int) -> pd.DataFrame:
     """Get spending/income breakdown by account."""
-    transactions_df = database.get_transactions_by_month(year, month)
+    override_manager = TransactionOverrideManager()
+    budget_transactions = override_manager.get_budget_transactions(year, month)
 
-    if transactions_df.empty:
+    if budget_transactions.empty:
         return pd.DataFrame()
 
     # Separate spending and income
     spending_by_account = (
-        transactions_df[
-            (transactions_df["amount"] < 0) & (~transactions_df["category"].isin(["Transfers", "Credit Card Payment"]))
-        ]
-        .groupby("account")["amount"]
-        .sum()
-        .abs()
+        budget_transactions[budget_transactions["amount"] < 0].groupby("account")["amount"].sum().abs()
     )
 
-    income_by_account = (
-        transactions_df[
-            (transactions_df["amount"] > 0) & (~transactions_df["category"].isin(["Transfers", "Credit Card Payment"]))
-        ]
-        .groupby("account")["amount"]
-        .sum()
-    )
+    income_by_account = budget_transactions[budget_transactions["amount"] > 0].groupby("account")["amount"].sum()
 
     # Combine into summary
     account_summary = pd.DataFrame({"spending": spending_by_account, "income": income_by_account}).fillna(0)

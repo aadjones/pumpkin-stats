@@ -127,7 +127,7 @@ class TestTransactionParser:
         ]
 
         for description, expected_category in test_cases:
-            category = parser._auto_categorize_bank("DEBIT", description, -50.00)
+            category, auto_exclude_reason = parser._auto_categorize_bank("DEBIT", description, -50.00)
             assert category == expected_category, f"Expected {expected_category} for {description}, got {category}"
 
 

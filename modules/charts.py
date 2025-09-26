@@ -18,6 +18,18 @@ def line_chart(df, column: str, color: str | None = None):
         markers=True,
         color_discrete_sequence=[color],
     )
+
+    # Emphasize data points and de-emphasize trend lines
+    fig.update_traces(
+        # Make data points prominent
+        marker=dict(size=12, line=dict(width=2, color="white")),
+        # Make connecting lines dashed and subtle
+        line=dict(dash="dash", width=2, color=color),
+        opacity=0.8,  # Set opacity at trace level, not line level
+        # Enhance hover for data points
+        hovertemplate="<b>%{x}</b><br>%{y:$,.0f}<extra></extra>",
+    )
+
     fig.update_layout(yaxis_title=_label(column))
     return fig
 

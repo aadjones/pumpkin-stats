@@ -24,6 +24,7 @@ class DatabaseConnection:
 
         # Create tables if they don't exist
         self._create_tables()
+        self._migrate_schema()
         self._insert_default_categories()
 
         return self.conn
@@ -49,6 +50,10 @@ class DatabaseConnection:
                 raw_description TEXT,
                 exclude_from_budget BOOLEAN DEFAULT 0,
                 manual_notes TEXT,
+                auto_exclude_reason TEXT,
+                manual_override_type TEXT,
+                override_reason TEXT,
+                override_category TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -70,8 +75,37 @@ class DatabaseConnection:
             CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
             CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category);
             CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account);
+            CREATE INDEX IF NOT EXISTS idx_transactions_override ON transactions(manual_override_type);
         """
         )
+
+    def _migrate_schema(self):
+        """Add new columns to existing databases."""
+        cursor = self.conn.cursor()
+
+        # Check if new columns exist, add them if not
+        cursor.execute("PRAGMA table_info(transactions)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if "auto_exclude_reason" not in columns:
+            cursor.execute("ALTER TABLE transactions ADD COLUMN auto_exclude_reason TEXT")
+
+        if "manual_override_type" not in columns:
+            cursor.execute("ALTER TABLE transactions ADD COLUMN manual_override_type TEXT")
+
+        if "override_reason" not in columns:
+            cursor.execute("ALTER TABLE transactions ADD COLUMN override_reason TEXT")
+
+        if "override_category" not in columns:
+            cursor.execute("ALTER TABLE transactions ADD COLUMN override_category TEXT")
+            # Migrate existing overrides to 'spending' category
+            cursor.execute(
+                """
+                UPDATE transactions
+                SET override_category = 'spending'
+                WHERE manual_override_type IS NOT NULL
+            """
+            )
 
     def _insert_default_categories(self):
         """Insert default categories if empty."""
@@ -156,8 +190,8 @@ def insert_transactions(transactions: List[Dict[str, Any]]) -> int:
                 conn.execute(
                     """
                     INSERT INTO transactions
-                    (id, date, description, amount, account, category, raw_description)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (id, date, description, amount, account, category, raw_description, auto_exclude_reason)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         txn_id,
@@ -167,6 +201,7 @@ def insert_transactions(transactions: List[Dict[str, Any]]) -> int:
                         txn["account"],
                         txn.get("category", "Other"),
                         txn.get("raw_description", txn["description"]),
+                        txn.get("auto_exclude_reason"),
                     ),
                 )
                 new_count += 1

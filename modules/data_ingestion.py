@@ -122,7 +122,7 @@ class TransactionParser:
             # Auto-categorize based on transaction type and description
             txn_type = row.get("Transaction Type", "")
             description = row.get("Description", "")
-            category = self._auto_categorize_bank(txn_type, description, amount)
+            category, auto_exclude_reason = self._auto_categorize_bank(txn_type, description, amount)
 
             transactions.append(
                 {
@@ -131,6 +131,7 @@ class TransactionParser:
                     "amount": amount,
                     "account": account_name,
                     "category": category,
+                    "auto_exclude_reason": auto_exclude_reason,
                     "raw_description": f"{txn_type}: {description}",
                 }
             )
@@ -161,7 +162,7 @@ class TransactionParser:
                 continue
 
             # Auto-categorize
-            category = self._auto_categorize_bank("DEBIT", description, amount)
+            category, auto_exclude_reason = self._auto_categorize_bank("DEBIT", description, amount)
 
             transactions.append(
                 {
@@ -170,6 +171,7 @@ class TransactionParser:
                     "amount": amount,
                     "account": account_name,
                     "category": category,
+                    "auto_exclude_reason": auto_exclude_reason,
                     "raw_description": description,
                 }
             )
@@ -221,6 +223,7 @@ class TransactionParser:
                     "amount": amount,
                     "account": account_name,
                     "category": category,
+                    "auto_exclude_reason": None,  # Credit card transactions are not auto-excluded
                     "raw_description": description,
                 }
             )
@@ -242,17 +245,22 @@ class TransactionParser:
                 # Return as-is if parsing fails
                 return str(date_str)
 
-    def _auto_categorize_bank(self, txn_type: str, description: str, amount: float) -> str:
-        """Auto-categorize bank transactions based on type and description."""
+    def _auto_categorize_bank(self, txn_type: str, description: str, amount: float) -> Tuple[str, Optional[str]]:
+        """Auto-categorize bank transactions based on type and description.
+
+        Returns:
+            Tuple of (category, auto_exclude_reason)
+            auto_exclude_reason is None for transactions that should be included in budget
+        """
         desc_upper = description.upper()
 
         # Income patterns (regardless of amount sign, check transaction type and description)
         if txn_type in ["DIRECTDEP", "CREDIT"] or "PAYROLL" in desc_upper:
-            return "Income"
+            return "Income", None
         elif ("ZELLE" in desc_upper or "VENMO" in desc_upper) and amount > 0:
-            return "Income"  # Only positive Zelle/Venmo are income
+            return "Income", None  # Only positive Zelle/Venmo are income
         elif amount > 0:  # Other positive amounts
-            return "Income"
+            return "Income", None
 
         # For negative Zelle/Venmo, let them fall through to be categorized as regular spending
         # unless they have explicit transfer language
@@ -272,25 +280,31 @@ class TransactionParser:
             "CHASE CREDIT CRD",
         ]
         if any(keyword in desc_upper for keyword in transfer_keywords):
-            return "Transfers"
+            # Determine specific transfer type for better transparency
+            if "CREDIT" in desc_upper or "CARD" in desc_upper:
+                return "Transfers", "credit_card_payment"
+            elif "TRANSFER" in desc_upper:
+                return "Transfers", "account_transfer"
+            else:
+                return "Transfers", "payment"
 
-        # Debits/Spending patterns
+        # Debits/Spending patterns (not excluded from budget)
 
         # Common patterns
         if any(word in desc_upper for word in ["GROCERY", "MARKET", "FOOD"]):
-            return "Groceries"
+            return "Groceries", None
         elif any(word in desc_upper for word in ["GAS", "SHELL", "EXXON", "BP", "AUTOMOTIVE", "AUTO"]):
-            return "Automotive"
+            return "Automotive", None
         elif any(word in desc_upper for word in ["VET", "PET", "PETCO", "PETSMART"]):
-            return "Pumpkin"
+            return "Pumpkin", None
         elif any(word in desc_upper for word in ["RESTAURANT", "COFFEE", "STARBUCKS"]):
-            return "Food & drink"
+            return "Food & drink", None
         elif "ATM" in desc_upper or "WITHDRAWAL" in desc_upper:
-            return "Other"
+            return "Other", None
         elif any(word in desc_upper for word in ["ELECTRIC", "UTILITY", "WATER", "INTERNET"]):
-            return "Bills & utilities"
+            return "Bills & utilities", None
 
-        return "Other"
+        return "Other", None
 
 
 def parse_account_info(filename: str) -> Tuple[str, str, str]:
@@ -313,15 +327,21 @@ def parse_account_info(filename: str) -> Tuple[str, str, str]:
 
         return owner, account_type, account_name
 
-    return "unknown", "unknown", filename
+    # If no pattern matches, clean up the filename for display
+    clean_filename = filename.lower().replace(".csv", "").replace("-", " ").replace("_", " ")
+    # Capitalize each word
+    clean_filename = " ".join(word.capitalize() for word in clean_filename.split())
+
+    return "unknown", "unknown", clean_filename
 
 
-def process_csv_file(file_path: Path) -> List[Dict]:
+def process_csv_file(file_path: Path, original_filename: Optional[str] = None) -> List[Dict]:
     """Process a single CSV file and return normalized transactions."""
     parser = TransactionParser()
 
-    # Extract account info from filename
-    owner, account_type, account_name = parse_account_info(file_path.name)
+    # Extract account info from original filename (if provided) or file path
+    filename_for_parsing = original_filename if original_filename else file_path.name
+    owner, account_type, account_name = parse_account_info(filename_for_parsing)
 
     try:
         # Read CSV
