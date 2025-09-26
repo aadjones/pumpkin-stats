@@ -44,8 +44,91 @@ with col1:
 with col2:
     st.title("Pumpkin Stats")
 
-# Month/Year selection in sidebar
+# Sidebar
 with st.sidebar:
+    st.header("📁 Upload New Data")
+
+    uploaded_files = st.file_uploader(
+        "Upload CSV files to add new transactions",
+        type=["csv"],
+        accept_multiple_files=True,
+        help="Upload bank or credit card CSV files. Files are processed automatically.",
+    )
+
+    if uploaded_files:
+        # Use session state to track processed files and prevent infinite loop
+        if "processed_files" not in st.session_state:
+            st.session_state.processed_files = set()
+
+        # Get file signatures to track what's been processed
+        current_files = {(f.name, len(f.getvalue())) for f in uploaded_files}
+
+        # Only process files we haven't seen before
+        new_files = [f for f in uploaded_files if (f.name, len(f.getvalue())) not in st.session_state.processed_files]
+
+        if new_files:
+            with st.spinner("Processing uploaded files..."):
+                total_new_transactions = 0
+
+                for uploaded_file in new_files:
+                    # Save uploaded file temporarily
+                    temp_path = f"/tmp/{uploaded_file.name}"
+                    with open(temp_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+
+                    # Process the file
+                    try:
+                        from pathlib import Path
+
+                        transactions = data_ingestion.process_csv_file(Path(temp_path))
+
+                        if transactions:
+                            # Insert transactions into database
+                            conn = database.get_connection()
+                            for txn in transactions:
+                                conn.execute(
+                                    """
+                                    INSERT OR IGNORE INTO transactions
+                                    (date, description, amount, account, category, raw_description)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                """,
+                                    (
+                                        txn["date"],
+                                        txn["description"],
+                                        txn["amount"],
+                                        txn["account"],
+                                        txn["category"],
+                                        txn["raw_description"],
+                                    ),
+                                )
+                            conn.commit()
+                            conn.close()
+
+                            total_new_transactions += len(transactions)
+                            st.success(f"✅ Processed {uploaded_file.name}: {len(transactions)} transactions")
+                        else:
+                            st.warning(f"⚠️ No valid transactions found in {uploaded_file.name}")
+
+                    except Exception as e:
+                        st.error(f"❌ Error processing {uploaded_file.name}: {str(e)}")
+
+                    # Clean up temp file
+                    try:
+                        import os
+
+                        os.remove(temp_path)
+                    except:
+                        pass
+
+                    # Mark this file as processed
+                    st.session_state.processed_files.add((uploaded_file.name, len(uploaded_file.getvalue())))
+
+                if total_new_transactions > 0:
+                    st.success(f"🎉 Successfully added {total_new_transactions} new transactions!")
+                    st.info("🔄 Refreshing page to show new data...")
+                    st.rerun()
+
+    st.divider()
     st.header("Select Month")
 
     # Get available months from database
@@ -82,77 +165,8 @@ with st.sidebar:
             st.error("No valid month selected")
             st.stop()
     else:
-        st.error("No transaction data found")
+        st.info("Upload CSV files above to get started")
         st.stop()
-
-    st.divider()
-    st.header("📁 Upload New Data")
-
-    uploaded_files = st.file_uploader(
-        "Upload CSV files to add new transactions",
-        type=["csv"],
-        accept_multiple_files=True,
-        help="Upload bank or credit card CSV files. Files are processed automatically.",
-    )
-
-    if uploaded_files:
-        with st.spinner("Processing uploaded files..."):
-            total_new_transactions = 0
-
-            for uploaded_file in uploaded_files:
-                # Save uploaded file temporarily
-                temp_path = f"/tmp/{uploaded_file.name}"
-                with open(temp_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-
-                # Process the file
-                try:
-                    from pathlib import Path
-
-                    transactions = data_ingestion.process_csv_file(Path(temp_path))
-
-                    if transactions:
-                        # Insert transactions into database
-                        conn = database.get_connection()
-                        for txn in transactions:
-                            conn.execute(
-                                """
-                                INSERT OR IGNORE INTO transactions
-                                (date, description, amount, account, category, raw_description)
-                                VALUES (?, ?, ?, ?, ?, ?)
-                            """,
-                                (
-                                    txn["date"],
-                                    txn["description"],
-                                    txn["amount"],
-                                    txn["account"],
-                                    txn["category"],
-                                    txn["raw_description"],
-                                ),
-                            )
-                        conn.commit()
-                        conn.close()
-
-                        total_new_transactions += len(transactions)
-                        st.success(f"✅ Processed {uploaded_file.name}: {len(transactions)} transactions")
-                    else:
-                        st.warning(f"⚠️ No valid transactions found in {uploaded_file.name}")
-
-                except Exception as e:
-                    st.error(f"❌ Error processing {uploaded_file.name}: {str(e)}")
-
-                # Clean up temp file
-                try:
-                    import os
-
-                    os.remove(temp_path)
-                except:
-                    pass
-
-            if total_new_transactions > 0:
-                st.success(f"🎉 Successfully added {total_new_transactions} new transactions!")
-                st.info("🔄 Refreshing page to show new data...")
-                st.rerun()
 
 st.markdown(f"### {datetime(current_year, current_month, 1).strftime('%B %Y')}")
 
@@ -234,7 +248,7 @@ with st.expander("📝 Review & Edit Transactions", expanded=False):
                 ),
             },
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             key="transaction_editor",
         )
 

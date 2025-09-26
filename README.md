@@ -1,68 +1,33 @@
-# Finance Dashboard
+# Pumpkin Stats - Personal Finance Dashboard
 
-[![Deploy to Streamlit](https://img.shields.io/badge/Deploy-Streamlit%20Cloud-%23FF4B4B)](https://streamlit.io/)
+Streamlit dashboard for household finance tracking and analysis. Automatically processes bank and credit card CSV exports, categorizes transactions, and provides spending insights.
 
-Dashboard for tracking cash flow
-
----
-
-## 🚀 Quick start
-
-Generate the project with Cookiecutter
+## Setup
 
 ```bash
-cookiecutter gh:aadjones/streamlit-mini-template
-
-cd finance_dashboard
+make setup    # Bootstrap environment, install dependencies
+make dev      # Run dashboard locally
+make test     # Run test suite
+make fmt      # Format code
 ```
 
-One-command bootstrap (creates env/, installs deps, git init, pre-commit)
+## Usage
 
-```bash
-make setup
-```
+1. Run `make dev` to start the dashboard
+2. Upload CSV files from your bank/credit card accounts via the sidebar
+3. Select a month to view spending analysis and transaction details
+4. Review and edit transaction categories as needed
 
-Run the dashboard locally
+## Supported CSV Formats
 
-```bash
-make dev
-```
+- **TD Bank**: Separate debit/credit columns
+- **Credit Cards**: Single amount column with transaction dates
+- **Generic Bank**: Various formats auto-detected
 
-(Optional) Auto-format & lint
+## Features
 
-```bash
-make fmt
-```
-
-Run test suite
-
-```bash
-make test
-```
-
-(Optional) Create a GitHub repo and run
-
-```bash
-git remote add origin git@github.com:<user>/<repo>.git
-git push -u origin main
-```
-
----
-
-## 📊 Demo data
-
-The repo ships with a tiny sample CSV at **`data/demo.csv`** so the dashboard shows charts on first run.  
-Replace it with your own file — or generate new mock data:
-
-    python scripts/gen_demo_data.py --rows 365
-
----
-
-## ☁️ Deploy
-
-**Streamlit Cloud**
-
-- Link the repo at <https://streamlit.io/cloud>
-- Push to **main** → Cloud auto-builds (or run `make deploy`)
-
-Happy hacking! 🌱
+- **Duplicate Detection**: Prevents double-counting transactions
+- **Auto-Categorization**: Intelligently categorizes transactions
+- **Transfer Detection**: Excludes credit card payments and account transfers from spending
+- **Manual Overrides**: Edit categories and exclude transactions from budget calculations
+- **Monthly Analysis**: Spending breakdown by category with visual charts

@@ -1,6 +1,9 @@
 streamlit>=1.35
+watchdog
 
 plotly
 
 pandas
 matplotlib
+
+
