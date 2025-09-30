@@ -434,7 +434,7 @@ def _render_backup_export_sidebar():
 
                     with col2:
                         # Use unique key for each restore button
-                        if st.button("🔄 Restore", key=f"restore_{i}", help="Restore from this backup"):
+                        if st.button("🔄", key=f"restore_{i}", help="Restore from this backup"):
                             with st.spinner(LOADING_MESSAGES["restoring"]):
                                 success = database.restore_from_backup(backup["path"])
                                 if success:
