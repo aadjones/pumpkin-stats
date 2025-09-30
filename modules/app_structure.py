@@ -26,8 +26,6 @@ from .trend_charts import (
 
 def render_monthly_transactions_tab():
     """Render the existing monthly transaction analysis tab."""
-    st.header("📅 Monthly Transactions")
-
     # Get available months from database
     with database.get_connection() as conn:
         available_months = conn.execute(
@@ -64,7 +62,8 @@ def render_monthly_transactions_tab():
                 default_index = idx
                 break
 
-    # Inline month selector
+    # Prominent month selector
+    st.markdown("### 📅 Select Month")
     selected_index = st.selectbox(
         "Select month:",
         options=range(len(display_names)),
@@ -73,6 +72,7 @@ def render_monthly_transactions_tab():
         key="monthly_detail_month",
         label_visibility="collapsed",
     )
+    st.markdown("---")
 
     # Get selected month
     current_year = month_options[selected_index][1]
@@ -220,21 +220,19 @@ def _render_unified_transaction_table(current_year, current_month):
 
     total_count = len(transactions_df)
 
-    # Initialize filter option from session state or default to "Spend"
-    if "transaction_filter_selection" not in st.session_state:
-        st.session_state.transaction_filter_selection = "Spend"
+    # Initialize the filter selection in session state if not present
+    # This ensures "Spend" is the default on first load, but preserves selection on reruns
+    if "transaction_filter" not in st.session_state:
+        st.session_state.transaction_filter = "Spend"
 
+    # Radio button - the key parameter links to session state for automatic persistence
     filter_option = st.radio(
         "Show:",
         options=["Spend", "Income", "Excluded", "All"],
         format_func=lambda x: f"{x} ({spend_count if x == 'Spend' else income_count if x == 'Income' else excluded_count if x == 'Excluded' else total_count})",
         horizontal=True,
         key="transaction_filter",
-        index=["Spend", "Income", "Excluded", "All"].index(st.session_state.transaction_filter_selection),
     )
-
-    # Update session state when filter changes
-    st.session_state.transaction_filter_selection = filter_option
 
     # Apply filter
     if filter_option == "Spend":
@@ -439,7 +437,7 @@ def _render_file_upload_sidebar():
                     account_name = account_info["account"]
                     count = account_info["count"]
 
-                    col1, col2 = st.columns([2.5, 1.5])
+                    col1, col2 = st.columns([2, 1.5])
 
                     with col1:
                         st.write(f"**{account_name}**")

@@ -14,7 +14,9 @@
       "mcp__ide__getDiagnostics",
       "Bash(make:*)",
       "Bash(cat:*)",
-      "Bash(timeout 10 streamlit run app.py)"
+      "Bash(timeout 10 streamlit run app.py)",
+      "Bash(source:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []
