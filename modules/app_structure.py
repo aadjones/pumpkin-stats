@@ -84,14 +84,8 @@ def render_monthly_transactions_tab():
     else:
         st.info("No spending categories found")
 
-    # Transaction Management with override controls
-    _render_transaction_management(transactions_df, current_year, current_month)
-
-    # Manual override controls
-    _render_override_controls(current_year, current_month)
-
-    # Income override controls
-    _render_income_override_controls(current_year, current_month)
+    # Unified Transaction Management
+    _render_unified_transaction_table(current_year, current_month)
 
 
 def render_trend_analysis_tab():
@@ -139,113 +133,144 @@ def render_trend_analysis_tab():
         st.info("Not enough category data to show trends")
 
 
-def _render_transaction_management(transactions_df, current_year, current_month):
-    """Helper function to render the transaction management section."""
+def _render_unified_transaction_table(current_year, current_month):
+    """Render the unified transaction table with status badges and inline actions."""
+    from .transaction_overrides import TransactionOverrideManager
+
     st.subheader("Transaction Management")
 
-    # Make transaction editing primary - no expander needed
-    st.write("📝 **Review & Edit Transactions**")
-    st.write("**Click on any transaction to edit its category or exclude it from budget calculations**")
+    # Get transactions with status
+    override_manager = TransactionOverrideManager()
+    transactions_df = override_manager.get_transactions_with_status(current_year, current_month)
 
-    # Show all transactions for the month with edit controls
-    if not transactions_df.empty:
-        # Sort by date descending, amount descending for better UX
-        display_transactions = transactions_df.sort_values(["date", "amount"], ascending=[False, True])
+    if transactions_df.empty:
+        st.info("No transactions found for this month")
+        return
 
-        st.write(
-            f"**{len(display_transactions)} transactions found for {datetime(current_year, current_month, 1).strftime('%B %Y')}**"
-        )
+    # Calculate filter counts
+    spend_count = len(transactions_df[(transactions_df["effective_exclude"] == 0) & (transactions_df["amount"] < 0)])
 
-        # Create editable dataframe
-        edited_df = st.data_editor(
-            display_transactions[
-                ["date", "description", "amount", "account", "category", "exclude_from_budget", "manual_notes"]
-            ],
-            column_config={
-                "date": st.column_config.DateColumn("Date", width="small", disabled=True),
-                "description": st.column_config.TextColumn("Description", width="large", disabled=True),
-                "amount": st.column_config.NumberColumn("Amount", format="$%.2f", width="small", disabled=True),
-                "account": st.column_config.TextColumn("Account", width="medium", disabled=True),
-                "category": st.column_config.SelectboxColumn(
-                    "Category", options=database.get_categories(), width="medium"
-                ),
-                "exclude_from_budget": st.column_config.CheckboxColumn(
-                    "Ignore",
-                    help="Check to ignore this transaction in spending/income calculations",
-                    width=80,
-                    default=False,
-                ),
-                "manual_notes": st.column_config.TextColumn(
-                    "Notes", help="Add notes about why you changed this transaction", width="medium"
-                ),
-            },
-            hide_index=True,
-            width="stretch",
-            key="transaction_editor",
-        )
+    # Income = positive amounts that ARE counted as income
+    income_transactions = override_manager.get_filtered_income_transactions(current_year, current_month)
+    income_ids = set(income_transactions["id"]) if not income_transactions.empty else set()
+    income_count = len(transactions_df[transactions_df["id"].isin(income_ids)])
 
-        # Save changes button (existing logic from app.py)
-        _handle_transaction_saves(edited_df, display_transactions)
+    # Excluded = auto-excluded + manually excluded + positive amounts NOT counted as income
+    excluded_count = len(
+        transactions_df[
+            (transactions_df["effective_exclude"] == 1)
+            | ((transactions_df["amount"] > 0) & (~transactions_df["id"].isin(income_ids)))
+        ]
+    )
 
+    total_count = len(transactions_df)
 
-def _handle_transaction_saves(edited_df, display_transactions):
-    """Helper to handle saving transaction changes."""
-    import pandas as pd
+    filter_option = st.radio(
+        "Show:",
+        options=["Spend", "Income", "Excluded", "All"],
+        format_func=lambda x: f"{x} ({spend_count if x == 'Spend' else income_count if x == 'Income' else excluded_count if x == 'Excluded' else total_count})",
+        horizontal=True,
+        key="transaction_filter",
+    )
 
-    def _normalize_boolean_value(val):
-        """Normalize a single boolean value to handle various data types and edge cases."""
-        # Simple approach: convert anything truthy to True, anything falsy to False
-        try:
-            # Handle None/NaN
-            if pd.isna(val):
-                return False
-            # Convert to bool - this handles int, numpy.int64, bool, etc.
-            return bool(val)
-        except:
-            # If anything fails, default to False
-            return False
+    # Apply filter
+    if filter_option == "Spend":
+        display_df = transactions_df[(transactions_df["effective_exclude"] == 0) & (transactions_df["amount"] < 0)]
+    elif filter_option == "Income":
+        display_df = transactions_df[transactions_df["id"].isin(income_ids)]
+    elif filter_option == "Excluded":
+        # Excluded = everything that's either explicitly excluded OR positive but not counted as income
+        display_df = transactions_df[
+            (transactions_df["effective_exclude"] == 1)
+            | ((transactions_df["amount"] > 0) & (~transactions_df["id"].isin(income_ids)))
+        ]
+    else:
+        display_df = transactions_df
 
-    if st.button("💾 Save Changes", type="primary"):
-        changes_made = 0
+    if display_df.empty:
+        st.info(f"No {filter_option.lower()} transactions found")
+        return
 
-        # Compare original vs edited data
-        for idx, (_, original_row) in enumerate(display_transactions.iterrows()):
-            edited_row = edited_df.iloc[idx]
-            transaction_id = original_row["id"]  # Get ID from original data since we removed it from editor
+    # Sort by date descending for better UX
+    display_df = display_df.sort_values(["date", "amount"], ascending=[False, True])
 
-            # Check what changed with robust boolean handling
-            category_changed = original_row["category"] != edited_row["category"]
+    # Display transactions with inline actions
+    st.write(f"**{len(display_df)} transactions**")
 
-            # Normalize boolean values for comparison
-            original_exclude = _normalize_boolean_value(original_row.get("exclude_from_budget", False))
-            edited_exclude = _normalize_boolean_value(edited_row["exclude_from_budget"])
-            exclude_changed = original_exclude != edited_exclude
+    # Use columns for each transaction row
+    for idx, row in display_df.iterrows():
+        col1, col2, col3, col4, col5, col6, col7 = st.columns([0.8, 2, 1, 0.8, 1.2, 1.5, 0.9])
 
-            notes_changed = original_row.get("manual_notes", "") != edited_row["manual_notes"]
+        with col1:
+            st.text(row["date"])
 
-            if category_changed or exclude_changed or notes_changed:
-                success = database.update_transaction_override(
-                    transaction_id,
-                    exclude_from_budget=edited_exclude,
-                    manual_notes=edited_row["manual_notes"],
-                    new_category=str(edited_row["category"]) if category_changed else None,
+        with col2:
+            st.markdown(f"**{row['description']}**")
+
+        with col3:
+            st.text(row["account"])
+
+        with col4:
+            # Add minus sign for negative amounts
+            amount_color = "red" if row["amount"] < 0 else "green"
+            amount_display = f"-${abs(row['amount']):,.2f}" if row["amount"] < 0 else f"${row['amount']:,.2f}"
+            st.markdown(f":{amount_color}[**{amount_display}**]")
+
+        with col5:
+            # Category with edit capability
+            categories = database.get_categories()
+            new_category = st.selectbox(
+                "Category",
+                options=categories,
+                index=categories.index(row["category"]) if row["category"] in categories else 0,
+                key=f"cat_{row['id']}",
+                label_visibility="collapsed",
+            )
+            if new_category != row["category"]:
+                database.update_transaction_override(
+                    row["id"], exclude_from_budget=False, manual_notes="", new_category=new_category
                 )
-                if success:
-                    changes_made += 1
+                st.rerun()
 
-        if changes_made > 0:
-            st.success(f"{SUCCESS_MESSAGES['save']} - {changes_made} updated")
-            st.rerun()
-        else:
-            st.info("Pumpkin sees no changes")
+        with col6:
+            st.text(row["status_badge"])
+
+        with col7:
+            # Inline action buttons based on available actions
+            actions = row["available_actions"].split(",")
+
+            if "undo" in actions:
+                if st.button("↩️", key=f"undo_{row['id']}", help="Remove manual override"):
+                    override_manager.remove_manual_override(row["id"])
+                    st.rerun()
+
+            elif "include" in actions:
+                if st.button("➕", key=f"include_{row['id']}", help="Include in budget"):
+                    override_manager.apply_manual_override(row["id"], "include", "User included", "spending")
+                    st.rerun()
+
+            elif "exclude" in actions:
+                if st.button("➖", key=f"exclude_{row['id']}", help="Exclude from budget"):
+                    override_manager.apply_manual_override(row["id"], "exclude", "User excluded", "spending")
+                    st.rerun()
+
+            elif "mark_income" in actions:
+                if st.button("💰", key=f"income_{row['id']}", help="Mark as income"):
+                    override_manager.apply_manual_override(row["id"], "include", "User marked as income", "income")
+                    st.rerun()
 
 
 def render_main_app_tabs():
     """Organize and render the main app tab structure."""
+    from . import feature_flags
+
     # Sidebar sections in order
     _render_file_upload_sidebar()
     _render_month_selector_sidebar()
-    _render_backup_export_sidebar()
+
+    # Only show backup/export if feature is enabled
+    if feature_flags.is_enabled("backup_system"):
+        _render_backup_export_sidebar()
 
     # Main content tabs
     tab1, tab2 = st.tabs(["Monthly Detail", "12-Month Trends"])
@@ -496,176 +521,3 @@ def _render_calculation_breakdown(breakdown):
             st.metric("Income", f"${breakdown['final_totals']['income']:,.2f}")
         with col3:
             st.metric("Net", f"${breakdown['final_totals']['net']:,.2f}")
-
-
-def _render_override_controls(current_year, current_month):
-    """Render manual override controls for transactions."""
-    from .transaction_overrides import TransactionOverrideManager
-
-    override_manager = TransactionOverrideManager()
-    auto_excluded, auto_included = override_manager.get_override_candidates(current_year, current_month)
-
-    st.subheader("Override Automatic Decisions")
-    st.write("Review and adjust transactions that were automatically included or excluded from your budget.")
-
-    # Auto-excluded transactions that could be included
-    if not auto_excluded.empty:
-        with st.expander(f"📋 Auto-excluded transactions ({len(auto_excluded)} items)", expanded=False):
-            st.write(
-                "These transactions were automatically excluded from budget calculations. Click 'Include' if any should count as spending."
-            )
-
-            for _, txn in auto_excluded.iterrows():
-                col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-
-                with col1:
-                    reason_label = {
-                        "credit_card_payment": "Credit card payment",
-                        "account_transfer": "Account transfer",
-                        "payment": "Payment",
-                    }.get(txn["auto_exclude_reason"], txn["auto_exclude_reason"])
-
-                    st.write(f"**{txn['description']}**")
-                    st.write(f"${txn['amount']:,.2f} • {reason_label} • {txn['account']}")
-
-                with col2:
-                    st.write(f"${abs(txn['amount']):,.2f}")
-
-                with col3:
-                    include_key = f"include_{txn['id']}"
-                    if st.button(
-                        "Include in budget", key=include_key, help="Include this transaction in spending calculations"
-                    ):
-                        success = override_manager.apply_manual_override(
-                            txn["id"], "include", "User manually included", "spending"
-                        )
-                        if success:
-                            st.success("✅ Transaction included in budget")
-                            st.rerun()
-                        else:
-                            st.error("❌ Failed to update transaction")
-
-                with col4:
-                    st.write(f"*{txn['category']}*")
-
-    # Auto-included transactions that could be excluded
-    if not auto_included.empty:
-        # Show only spending transactions (negative amounts) for manual exclusion
-        spending_transactions = auto_included[auto_included["amount"] < 0]
-
-        if not spending_transactions.empty:
-            with st.expander(f"💰 Included spending transactions ({len(spending_transactions)} items)", expanded=False):
-                st.write(
-                    "These transactions are currently included in your spending. Click 'Exclude' if any should not count as spending."
-                )
-
-                # Pagination for large lists
-                page_size = 10
-                total_pages = (len(spending_transactions) + page_size - 1) // page_size
-
-                if total_pages > 1:
-                    page = st.number_input("Page", min_value=1, max_value=total_pages, value=1) - 1
-                    start_idx = page * page_size
-                    end_idx = start_idx + page_size
-                    display_transactions = spending_transactions.iloc[start_idx:end_idx]
-                else:
-                    display_transactions = spending_transactions
-
-                for _, txn in display_transactions.iterrows():
-                    col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-
-                    with col1:
-                        st.write(f"**{txn['description']}**")
-                        st.write(f"${txn['amount']:,.2f} • {txn['account']}")
-
-                    with col2:
-                        st.write(f"${abs(txn['amount']):,.2f}")
-
-                    with col3:
-                        exclude_key = f"exclude_{txn['id']}"
-                        if st.button(
-                            "Exclude from budget",
-                            key=exclude_key,
-                            help="Exclude this transaction from spending calculations",
-                        ):
-                            success = override_manager.apply_manual_override(
-                                txn["id"], "exclude", "User manually excluded", "spending"
-                            )
-                            if success:
-                                st.success("✅ Transaction excluded from budget")
-                                st.rerun()
-                            else:
-                                st.error("❌ Failed to update transaction")
-
-                    with col4:
-                        st.write(f"*{txn['category']}*")
-
-
-def _render_income_override_controls(current_year, current_month):
-    """Render income override controls for transactions."""
-    from .transaction_overrides import TransactionOverrideManager
-
-    override_manager = TransactionOverrideManager()
-    pending_income_overrides = override_manager.get_pending_income_overrides(current_year, current_month)
-
-    if not pending_income_overrides.empty:
-        st.subheader("Income Classification Review")
-        st.write(
-            "These positive amounts were not automatically counted as income. Review them and mark any that should count as income."
-        )
-
-        with st.expander(f"💰 Potential income not counted ({len(pending_income_overrides)} items)", expanded=False):
-            st.write(
-                "**We use a conservative approach to income** - only counting clear income patterns like payroll, cashback, etc."
-            )
-            st.write(
-                "If you see legitimate income below that we missed, click 'Mark as Income' to include it in your totals."
-            )
-
-            # Pagination for large lists
-            page_size = 10
-            total_pages = (len(pending_income_overrides) + page_size - 1) // page_size
-
-            if total_pages > 1:
-                page = st.number_input("Page", min_value=1, max_value=total_pages, value=1, key="income_page") - 1
-                start_idx = page * page_size
-                end_idx = start_idx + page_size
-                display_transactions = pending_income_overrides.iloc[start_idx:end_idx]
-                st.write(
-                    f"Showing {start_idx + 1}-{min(end_idx, len(pending_income_overrides))} of {len(pending_income_overrides)}"
-                )
-            else:
-                display_transactions = pending_income_overrides
-
-            for _, txn in display_transactions.iterrows():
-                col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-
-                with col1:
-                    st.write(f"**{txn['description']}**")
-                    st.write(f"${txn['amount']:,.2f} • {txn['account']}")
-
-                with col2:
-                    st.write(f"${txn['amount']:,.2f}")
-
-                with col3:
-                    mark_income_key = f"mark_income_{txn['id']}"
-                    if st.button(
-                        "Mark as Income", key=mark_income_key, help="Include this transaction in income calculations"
-                    ):
-                        success = override_manager.apply_manual_override(
-                            txn["id"], "include", "User marked as legitimate income", "income"
-                        )
-                        if success:
-                            st.success("✅ Transaction marked as income")
-                            st.rerun()
-                        else:
-                            st.error("❌ Failed to update transaction")
-
-                with col4:
-                    st.write(f"*{txn['category']}*")
-
-                st.divider()
-    else:
-        # Show a collapsed section even when there are no overrides
-        with st.expander("💰 Income Classification Review", expanded=False):
-            st.info("✅ All positive amounts have been properly classified. No income overrides needed this month.")

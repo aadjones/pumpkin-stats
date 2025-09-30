@@ -238,3 +238,85 @@ class TransactionOverrideManager:
         pending_overrides = positive_transactions[~positive_transactions["id"].isin(excluded_ids)]
 
         return pending_overrides.sort_values(["date", "amount"], ascending=[False, False])
+
+    def get_transactions_with_status(self, year: int, month: int) -> pd.DataFrame:
+        """Get all transactions with computed status badges and action buttons."""
+        all_transactions = self.get_effective_transactions(year, month)
+
+        if all_transactions.empty:
+            return all_transactions
+
+        # Get income IDs for status determination
+        income_transactions = self.get_filtered_income_transactions(year, month)
+        income_ids = set(income_transactions["id"]) if not income_transactions.empty else set()
+
+        # Compute status for each transaction
+        statuses = []
+        status_badges = []
+        status_reasons = []
+        available_actions = []
+
+        for _, row in all_transactions.iterrows():
+            is_positive = row["amount"] > 0
+            is_excluded = row["effective_exclude"] == 1
+            manual_override = row["manual_override_type"]
+            auto_exclude = row["auto_exclude_reason"]
+            is_income = row["id"] in income_ids
+
+            # Determine status
+            if manual_override == "exclude":
+                status = "manually_excluded"
+                badge = "❌ Manually excluded"
+                reason = row.get("override_reason", "")
+                actions = ["undo"]
+            elif manual_override == "include" and row.get("override_category") == "income":
+                status = "marked_income"
+                badge = "💰 Marked as income"
+                reason = ""
+                actions = ["undo"]
+            elif manual_override == "include":
+                status = "manually_included"
+                badge = "✓ Manually included"
+                reason = ""
+                actions = ["exclude"]
+            elif is_excluded and auto_exclude:
+                status = "auto_excluded"
+                # Format reason nicely
+                reason_map = {
+                    "credit_card_payment": "Credit card payment",
+                    "account_transfer": "Account transfer",
+                    "payment": "Payment",
+                }
+                reason = reason_map.get(auto_exclude, auto_exclude.replace("_", " ").title())
+                badge = f"🚫 Auto-excluded: {reason}"
+                actions = ["include"]
+            elif is_positive and is_income:
+                status = "counted_income"
+                badge = "✓ Counted as income"
+                reason = ""
+                actions = ["exclude"]
+            elif is_positive and not is_income:
+                status = "not_counted_income"
+                badge = "⚠️ Not counted: Not clear income"
+                reason = ""
+                actions = ["mark_income"]
+            else:
+                # Regular spending transaction
+                status = "in_budget"
+                badge = "✓ In Budget"
+                reason = ""
+                actions = ["exclude"]
+
+            statuses.append(status)
+            status_badges.append(badge)
+            status_reasons.append(reason)
+            available_actions.append(",".join(actions))
+
+        # Add computed columns
+        all_transactions = all_transactions.copy()
+        all_transactions["status"] = statuses
+        all_transactions["status_badge"] = status_badges
+        all_transactions["status_reason"] = status_reasons
+        all_transactions["available_actions"] = available_actions
+
+        return all_transactions

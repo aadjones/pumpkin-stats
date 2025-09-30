@@ -1,6 +1,6 @@
 import streamlit as st
 
-from modules import database
+from modules import database, feature_flags
 from modules.app_structure import render_main_app_tabs
 from modules.pumpkin_quotes import get_random_quote
 
@@ -10,11 +10,12 @@ def main():
     st.set_page_config(page_title="Pumpkin Stats", page_icon="💰", layout="wide")
 
     # Create automatic backup on first load (once per session)
-    if "backup_created" not in st.session_state:
-        backup_path = database.create_backup()
-        st.session_state.backup_created = True
-        if backup_path:
-            st.session_state.last_backup_path = backup_path
+    if feature_flags.is_enabled("backup_system"):
+        if "backup_created" not in st.session_state:
+            backup_path = database.create_backup()
+            st.session_state.backup_created = True
+            if backup_path:
+                st.session_state.last_backup_path = backup_path
 
     # Title with logo
     col1, col2 = st.columns([1, 4])
