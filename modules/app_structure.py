@@ -27,16 +27,59 @@ def render_monthly_transactions_tab():
     """Render the existing monthly transaction analysis tab."""
     st.header("📅 Monthly Transactions")
 
-    # Get current month from session state (set by sidebar)
-    if "current_year" not in st.session_state or "current_month" not in st.session_state:
-        st.info("Select a month from the sidebar to get started")
+    # Get available months from database
+    with database.get_connection() as conn:
+        available_months = conn.execute(
+            """
+            SELECT DISTINCT
+                strftime('%Y', date) as year,
+                strftime('%m', date) as month,
+                COUNT(*) as count
+            FROM transactions
+            GROUP BY strftime('%Y', date), strftime('%m', date)
+            ORDER BY year DESC, month DESC
+        """
+        ).fetchall()
+
+    if not available_months:
+        st.info(EMPTY_STATES["no_data"])
         st.stop()
 
-    current_year = st.session_state.current_year
-    current_month = st.session_state.current_month
+    # Create month options
+    month_options = []
+    for year, month, count in available_months:
+        date_obj = datetime(int(year), int(month), 1)
+        display_name = f"{date_obj.strftime('%B %Y')} ({count} transactions)"
+        month_options.append((display_name, int(year), int(month)))
 
-    # Monthly analysis content
-    st.markdown(f"### {datetime(current_year, current_month, 1).strftime('%B %Y')}")
+    # Get display names for selectbox
+    display_names = [option[0] for option in month_options]
+
+    # Initialize default selection from session state or use first month
+    default_index = 0
+    if "current_year" in st.session_state and "current_month" in st.session_state:
+        for idx, (_, year, month) in enumerate(month_options):
+            if year == st.session_state.current_year and month == st.session_state.current_month:
+                default_index = idx
+                break
+
+    # Inline month selector
+    selected_index = st.selectbox(
+        "Select month:",
+        options=range(len(display_names)),
+        format_func=lambda x: display_names[x],
+        index=default_index,
+        key="monthly_detail_month",
+        label_visibility="collapsed",
+    )
+
+    # Get selected month
+    current_year = month_options[selected_index][1]
+    current_month = month_options[selected_index][2]
+
+    # Store in session state for consistency
+    st.session_state.current_year = current_year
+    st.session_state.current_month = current_month
 
     # Get household finances using proper accounting principles
     spending, income, net, transactions_df, breakdown = finance_calculations.get_household_finances(
@@ -89,14 +132,29 @@ def render_monthly_transactions_tab():
 
 
 def render_trend_analysis_tab():
-    """Render the new 12-month trend analysis tab."""
-    st.header("📈 12-Month Trends")
+    """Render trend analysis tab with optional time range selection."""
+    from . import feature_flags
+
+    st.header("📈 Trends")
+
+    # Time range selector (if feature flag enabled)
+    if feature_flags.is_enabled("time_range_selector"):
+        time_range = st.radio(
+            "Show last:",
+            options=[3, 6, 12],
+            format_func=lambda x: f"{x} months",
+            horizontal=True,
+            index=2,  # Default to 12 months
+            key="trend_timerange",
+        )
+    else:
+        time_range = 12  # Default to 12 if feature disabled
 
     # Create trend analyzer
     analyzer = TrendAnalyzer()
 
     # Get trend data
-    monthly_trends = analyzer.get_monthly_trends(months=12)
+    monthly_trends = analyzer.get_monthly_trends(months=time_range)
 
     if monthly_trends.empty:
         st.info("Need at least 2 months of transaction data to show trends")
@@ -110,7 +168,7 @@ def render_trend_analysis_tab():
     # Category trends
     st.subheader("Category Spending Trends")
 
-    category_trends = analyzer.get_top_category_trends(months=12, top_n=20)
+    category_trends = analyzer.get_top_category_trends(months=time_range, top_n=20)
 
     if not category_trends.empty:
         # Primary chart: Top categories line chart
@@ -266,14 +324,13 @@ def render_main_app_tabs():
 
     # Sidebar sections in order
     _render_file_upload_sidebar()
-    _render_month_selector_sidebar()
 
     # Only show backup/export if feature is enabled
     if feature_flags.is_enabled("backup_system"):
         _render_backup_export_sidebar()
 
     # Main content tabs
-    tab1, tab2 = st.tabs(["Monthly Detail", "12-Month Trends"])
+    tab1, tab2 = st.tabs(["Monthly Detail", "Trends"])
 
     with tab1:
         render_monthly_transactions_tab()
@@ -351,50 +408,6 @@ def _render_file_upload_sidebar():
                     if total_new_transactions > 0:
                         st.success(f"{SUCCESS_MESSAGES['upload']} - {total_new_transactions} total")
                         st.rerun()
-
-        st.divider()
-
-
-def _render_month_selector_sidebar():
-    """Render month selector in sidebar."""
-    with st.sidebar:
-        st.header("📅 Select Month")
-
-        # Get available months from database
-        with database.get_connection() as conn:
-            available_months = conn.execute(
-                """
-                SELECT DISTINCT
-                    strftime('%Y', date) as year,
-                    strftime('%m', date) as month,
-                    COUNT(*) as count
-                FROM transactions
-                GROUP BY strftime('%Y', date), strftime('%m', date)
-                ORDER BY year DESC, month DESC
-            """
-            ).fetchall()
-
-        if not available_months:
-            st.info(EMPTY_STATES["no_data"])
-            return
-
-        # Create month options as simple strings
-        month_options = []
-        for year, month, count in available_months:
-            date_obj = datetime(int(year), int(month), 1)
-            display_name = f"{date_obj.strftime('%B %Y')} ({count} transactions)"
-            month_options.append((display_name, int(year), int(month)))
-
-        # Get display names for selectbox
-        display_names = [option[0] for option in month_options]
-
-        selected_index = st.selectbox(
-            "Choose month:", options=range(len(display_names)), format_func=lambda x: display_names[x]
-        )
-
-        # Store in session state for access by tabs
-        st.session_state.current_year = month_options[selected_index][1]
-        st.session_state.current_month = month_options[selected_index][2]
 
         st.divider()
 
@@ -477,7 +490,7 @@ def _render_calculation_breakdown(breakdown):
     if not breakdown.get("auto_excluded") and not breakdown.get("manual_overrides"):
         return
 
-    with st.expander("🔍 How we calculated your spending", expanded=False):
+    with st.expander("🔍 How we calculated your spending and income", expanded=False):
         st.write("**Calculation Transparency**")
 
         # Auto-excluded transactions

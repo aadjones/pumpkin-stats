@@ -8,6 +8,7 @@ Simple boolean flags to control features without removing code.
 FEATURES = {
     "backup_system": False,  # Automatic backups and backup UI controls
     "export_csv": True,  # CSV export functionality
+    "time_range_selector": True,  # Allow users to select 3/6/12 month time ranges in Trends tab
 }
 
 

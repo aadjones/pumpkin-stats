@@ -47,7 +47,7 @@ def create_monthly_trends_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
 
     fig.update_layout(
-        title="12-Month Financial Trends",
+        title="Financial Trends",
         xaxis_title="Month",
         yaxis_title="Amount ($)",
         hovermode="x unified",
