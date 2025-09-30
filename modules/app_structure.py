@@ -223,13 +223,21 @@ def _render_unified_transaction_table(current_year, current_month):
 
     total_count = len(transactions_df)
 
+    # Initialize filter option from session state or default to "Spend"
+    if "transaction_filter_selection" not in st.session_state:
+        st.session_state.transaction_filter_selection = "Spend"
+
     filter_option = st.radio(
         "Show:",
         options=["Spend", "Income", "Excluded", "All"],
         format_func=lambda x: f"{x} ({spend_count if x == 'Spend' else income_count if x == 'Income' else excluded_count if x == 'Excluded' else total_count})",
         horizontal=True,
         key="transaction_filter",
+        index=["Spend", "Income", "Excluded", "All"].index(st.session_state.transaction_filter_selection),
     )
+
+    # Update session state when filter changes
+    st.session_state.transaction_filter_selection = filter_option
 
     # Apply filter
     if filter_option == "Spend":
