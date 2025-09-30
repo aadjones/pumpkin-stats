@@ -24,18 +24,18 @@ function Setup {
     }
 
     & .\env\Scripts\Activate.ps1
-    pip install -r requirements.txt -r requirements-dev.txt
+    & pip install -r requirements.txt -r requirements-dev.txt
 
     if (!(Test-Path ".git")) {
         Write-Host "🔧 Initializing Git repo..."
-        git init
-        git checkout -b main 2>&1 | Out-Null
+        & git init
+        & git checkout -b main 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            git switch -c main
+            & git switch -c main
         }
     }
 
-    .\env\Scripts\pre-commit.exe install
+    & .\env\Scripts\pre-commit.exe install
     Write-Host "✅ Setup complete!"
 }
 

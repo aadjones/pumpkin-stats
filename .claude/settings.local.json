@@ -12,7 +12,8 @@
       "Bash(env/bin/pip show:*)",
       "Bash(env/bin/pip install:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
