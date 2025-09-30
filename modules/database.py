@@ -1,4 +1,5 @@
 import hashlib
+import shutil
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 
 DATABASE_PATH = Path("data/finance.db")
+BACKUP_DIR = Path("data/backups")
 
 
 class DatabaseConnection:
@@ -137,8 +139,23 @@ def get_connection():
 
 
 def generate_transaction_id(date: str, description: str, amount: float, account: str) -> str:
-    """Generate unique ID for transaction to avoid duplicates."""
-    content = f"{date}|{description}|{amount}|{account}"
+    """
+    Generate unique ID for transaction to avoid duplicates.
+
+    Normalizes description and amount to catch duplicates even when formatting varies.
+    """
+    # Normalize description: uppercase, strip whitespace, collapse multiple spaces
+    normalized_desc = str(description).upper().strip()
+    normalized_desc = " ".join(normalized_desc.split())  # Collapse multiple spaces to single
+
+    # Round amount to 2 decimal places to handle floating point inconsistencies
+    rounded_amount = round(float(amount), 2)
+
+    # Normalize account name similarly
+    normalized_account = str(account).upper().strip()
+    normalized_account = " ".join(normalized_account.split())
+
+    content = f"{date}|{normalized_desc}|{rounded_amount}|{normalized_account}"
     return hashlib.md5(content.encode()).hexdigest()
 
 
@@ -318,3 +335,147 @@ def update_transaction_override(
         cursor.execute(query, params)
         success = cursor.rowcount > 0
     return success
+
+
+# ============================================================================
+# BACKUP AND EXPORT FUNCTIONS
+# ============================================================================
+
+
+def create_backup() -> Optional[Path]:
+    """
+    Create a backup of the database.
+
+    Returns the path to the backup file, or None if backup failed.
+    Automatically maintains the last 7 backups.
+    """
+    if not DATABASE_PATH.exists():
+        return None
+
+    # Create backup directory
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Generate backup filename with timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_path = BACKUP_DIR / f"finance_{timestamp}.db"
+
+    try:
+        # Copy database file
+        shutil.copy2(DATABASE_PATH, backup_path)
+
+        # Clean up old backups (keep last 7)
+        backups = sorted(BACKUP_DIR.glob("finance_*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old_backup in backups[7:]:
+            old_backup.unlink()
+
+        return backup_path
+    except Exception as e:
+        print(f"Backup failed: {e}")
+        return None
+
+
+def get_backup_info() -> List[Dict[str, Any]]:
+    """
+    Get information about available backups.
+
+    Returns list of dicts with backup metadata sorted by date (newest first).
+    """
+    if not BACKUP_DIR.exists():
+        return []
+
+    backups = []
+    for backup_path in BACKUP_DIR.glob("finance_*.db"):
+        stat = backup_path.stat()
+        backups.append(
+            {
+                "path": backup_path,
+                "filename": backup_path.name,
+                "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                "created": datetime.fromtimestamp(stat.st_mtime),
+            }
+        )
+
+    # Sort by creation time, newest first
+    backups.sort(key=lambda x: x["created"], reverse=True)
+    return backups
+
+
+def restore_from_backup(backup_path: Path) -> bool:
+    """
+    Restore database from a backup file.
+
+    Creates a backup of current database before restoring.
+
+    Args:
+        backup_path: Path to the backup file to restore from
+
+    Returns:
+        True if restore succeeded, False otherwise
+    """
+    if not backup_path.exists():
+        print(f"Backup file not found: {backup_path}")
+        return False
+
+    try:
+        # Create a backup of current database before overwriting
+        if DATABASE_PATH.exists():
+            current_backup = create_backup()
+            if not current_backup:
+                print("Failed to backup current database before restore")
+                return False
+
+        # Copy backup file over current database
+        shutil.copy2(backup_path, DATABASE_PATH)
+        return True
+
+    except Exception as e:
+        print(f"Restore failed: {e}")
+        return False
+
+
+def export_all_transactions_to_csv(output_path: Path) -> bool:
+    """
+    Export all transactions to a CSV file with all columns.
+
+    Args:
+        output_path: Path where CSV should be saved
+
+    Returns:
+        True if export succeeded, False otherwise
+    """
+    try:
+        with get_connection() as conn:
+            # Get all transactions with all columns
+            query = """
+                SELECT
+                    id,
+                    date,
+                    description,
+                    amount,
+                    account,
+                    category,
+                    category_source,
+                    raw_description,
+                    exclude_from_budget,
+                    manual_notes,
+                    auto_exclude_reason,
+                    manual_override_type,
+                    override_reason,
+                    override_category,
+                    created_at,
+                    updated_at
+                FROM transactions
+                ORDER BY date DESC, amount DESC
+            """
+            df = pd.read_sql_query(query, conn)
+
+        # Ensure output directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Export to CSV
+        df.to_csv(output_path, index=False)
+        return True
+
+    except Exception as e:
+        print(f"Export failed: {e}")
+        return False

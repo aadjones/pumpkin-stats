@@ -2,6 +2,7 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from . import constants
 from .database import get_connection
 
 
@@ -159,31 +160,17 @@ class TransactionOverrideManager:
         if positive_transactions.empty:
             return positive_transactions
 
-        # Income patterns from finance_calculations.py
-        income_patterns = [
-            "PAYROLL",
-            "DIRECT DEP",
-            "DIRECTDEP",
-            "REIMBURS",
-            "REFUND",
-            "CASHBACK",
-            "CASH BACK",
-            "GIFT",
-            "BONUS",
-            "INTEREST",
-        ]
-
-        # Filter to only include clear income patterns
+        # Filter to only include clear income patterns (from constants)
         legitimate_income = positive_transactions[
             positive_transactions["description"]
             .str.upper()
-            .str.contains("|".join(income_patterns), regex=True, na=False)
+            .str.contains("|".join(constants.INCOME_PATTERNS), regex=True, na=False)
         ]
 
         # Also include small positive amounts from credit cards (likely cashback/refunds)
         credit_card_income = positive_transactions[
             (positive_transactions["account"].str.contains("Credit", case=False))
-            & (positive_transactions["amount"] < 100)  # Small amounts likely cashback
+            & (positive_transactions["amount"] < constants.CREDIT_CARD_INCOME_THRESHOLD)
         ]
 
         # Combine legitimate income sources

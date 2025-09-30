@@ -1,16 +1,10 @@
 # modules/charts.py
-from .constants import COLORS, LABELS  # COLORS is now used 100 % of the time
-
-
-def _label(col: str) -> str:
-    return LABELS.get(col.lower(), col.capitalize())
-
-
 import plotly.express as px
 
 
 def line_chart(df, column: str, color: str | None = None):
-    color = COLORS.get(column.lower(), color or "#4682B4")  # auto-lookup
+    # Default color if none provided
+    color = color or "#4682B4"
     fig = px.line(
         df,
         x=df.columns[0],
@@ -30,7 +24,7 @@ def line_chart(df, column: str, color: str | None = None):
         hovertemplate="<b>%{x}</b><br>%{y:$,.0f}<extra></extra>",
     )
 
-    fig.update_layout(yaxis_title=_label(column))
+    fig.update_layout(yaxis_title=column.capitalize())
     return fig
 
 

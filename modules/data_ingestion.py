@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from . import constants
+
 
 class CategoryMapper:
     """Maps various institution category names to standardized categories."""
@@ -267,19 +269,7 @@ class TransactionParser:
 
         # Transfer/Payment patterns (should not count as spending)
         # Be very conservative - only obvious credit card payments and bank transfers
-        transfer_keywords = [
-            "ONLINE TRANSFER",
-            "RECURRING TRANSFER",
-            "XFER TRANSFER",
-            "CREDIT CRD EPAY",
-            "CARD SERV",
-            "ONLINE PMT",
-            "AUTO PMT",
-            "DISCOVER E-PAYMENT",
-            "CHASE CARD SERV",
-            "CHASE CREDIT CRD",
-        ]
-        if any(keyword in desc_upper for keyword in transfer_keywords):
+        if any(keyword in desc_upper for keyword in constants.TRANSFER_KEYWORDS):
             # Determine specific transfer type for better transparency
             if "CREDIT" in desc_upper or "CARD" in desc_upper:
                 return "Transfers", "credit_card_payment"

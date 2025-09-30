@@ -22,6 +22,8 @@ data/*.csv
 data/*.CSV
 data/*.db
 data/*.xlsx
+data/backups/
+data/export_*.csv
 !data/demo.csv
 
 

@@ -9,8 +9,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from .constants import COLORS
-
 
 def create_monthly_trends_chart(trend_df: pd.DataFrame) -> go.Figure:
     """Create multi-line trend chart showing spending, income, and net over time."""
@@ -26,7 +24,7 @@ def create_monthly_trends_chart(trend_df: pd.DataFrame) -> go.Figure:
             y=trend_df["spending"],
             mode="lines+markers",
             name="Spending",
-            line=dict(color=COLORS.get("spending", "#DB6D72"), width=2, dash="dash"),
+            line=dict(color="#DB6D72", width=2, dash="dash"),
             marker=dict(size=12, line=dict(width=2, color="white")),
             hovertemplate="<b>%{fullData.name}</b><br>%{x}<br>$%{y:,.2f}<extra></extra>",
         )
@@ -39,7 +37,7 @@ def create_monthly_trends_chart(trend_df: pd.DataFrame) -> go.Figure:
             y=trend_df["income"],
             mode="lines+markers",
             name="Income",
-            line=dict(color=COLORS.get("income", "#32CD32"), width=2, dash="dash"),
+            line=dict(color="#32CD32", width=2, dash="dash"),
             marker=dict(size=12, line=dict(width=2, color="white")),
             hovertemplate="<b>%{fullData.name}</b><br>%{x}<br>$%{y:,.2f}<extra></extra>",
         )

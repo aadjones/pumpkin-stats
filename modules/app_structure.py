@@ -9,6 +9,12 @@ from datetime import datetime
 import streamlit as st
 
 from . import charts, database, finance_calculations
+from .pumpkin_quotes import (
+    EMPTY_STATES,
+    ERROR_MESSAGES,
+    LOADING_MESSAGES,
+    SUCCESS_MESSAGES,
+)
 from .trend_analysis import TrendAnalyzer
 from .trend_charts import (
     create_category_trends_chart,
@@ -21,44 +27,13 @@ def render_monthly_transactions_tab():
     """Render the existing monthly transaction analysis tab."""
     st.header("📅 Monthly Transactions")
 
-    # Month selection sidebar content (keep existing logic)
-    with st.sidebar:
-        st.header("Select Month")
+    # Get current month from session state (set by sidebar)
+    if "current_year" not in st.session_state or "current_month" not in st.session_state:
+        st.info("Select a month from the sidebar to get started")
+        st.stop()
 
-        # Get available months from database
-        with database.get_connection() as conn:
-            available_months = conn.execute(
-                """
-                SELECT DISTINCT
-                    strftime('%Y', date) as year,
-                    strftime('%m', date) as month,
-                    COUNT(*) as count
-                FROM transactions
-                GROUP BY strftime('%Y', date), strftime('%m', date)
-                ORDER BY year DESC, month DESC
-            """
-            ).fetchall()
-
-        if not available_months:
-            st.info("Upload CSV files above to get started")
-            st.stop()
-
-        # Create month options as simple strings
-        month_options = []
-        for year, month, count in available_months:
-            date_obj = datetime(int(year), int(month), 1)
-            display_name = f"{date_obj.strftime('%B %Y')} ({count} transactions)"
-            month_options.append((display_name, int(year), int(month)))
-
-        # Get display names for selectbox
-        display_names = [option[0] for option in month_options]
-
-        selected_index = st.selectbox(
-            "Choose month:", options=range(len(display_names)), format_func=lambda x: display_names[x]
-        )
-
-        current_year = month_options[selected_index][1]
-        current_month = month_options[selected_index][2]
+    current_year = st.session_state.current_year
+    current_month = st.session_state.current_month
 
     # Monthly analysis content
     st.markdown(f"### {datetime(current_year, current_month, 1).strftime('%B %Y')}")
@@ -69,7 +44,7 @@ def render_monthly_transactions_tab():
     )
 
     if transactions_df.empty:
-        st.warning("No transactions found for this month")
+        st.info(EMPTY_STATES["no_transactions"])
         st.stop()
 
     # Display key metrics
@@ -195,8 +170,8 @@ def _render_transaction_management(transactions_df, current_year, current_month)
                     "Category", options=database.get_categories(), width="medium"
                 ),
                 "exclude_from_budget": st.column_config.CheckboxColumn(
-                    "Exclude",
-                    help="Check to exclude this transaction from income/spending calculations",
+                    "Ignore",
+                    help="Check to ignore this transaction in spending/income calculations",
                     width=80,
                     default=False,
                 ),
@@ -259,16 +234,18 @@ def _handle_transaction_saves(edited_df, display_transactions):
                     changes_made += 1
 
         if changes_made > 0:
-            st.success(f"✅ Updated {changes_made} transactions")
+            st.success(f"{SUCCESS_MESSAGES['save']} - {changes_made} updated")
             st.rerun()
         else:
-            st.info("No changes detected")
+            st.info("Pumpkin sees no changes")
 
 
 def render_main_app_tabs():
     """Organize and render the main app tab structure."""
-    # File upload sidebar (keep at top level)
+    # Sidebar sections in order
     _render_file_upload_sidebar()
+    _render_month_selector_sidebar()
+    _render_backup_export_sidebar()
 
     # Main content tabs
     tab1, tab2 = st.tabs(["Monthly Detail", "12-Month Trends"])
@@ -311,7 +288,7 @@ def _render_file_upload_sidebar():
             ]
 
             if new_files:
-                with st.spinner("Processing uploaded files..."):
+                with st.spinner(LOADING_MESSAGES["processing_files"]):
                     total_new_transactions = 0
 
                     for uploaded_file in new_files:
@@ -330,14 +307,12 @@ def _render_file_upload_sidebar():
                                 # Insert transactions into database using the proper function
                                 new_count = database.insert_transactions(transactions)
                                 total_new_transactions += new_count
-                                st.success(
-                                    f"✅ Processed {uploaded_file.name}: {new_count} new transactions ({len(transactions)} total)"
-                                )
+                                st.success(f"{SUCCESS_MESSAGES['upload']}: {new_count} new from {uploaded_file.name}")
                             else:
                                 st.warning(f"⚠️ No valid transactions found in {uploaded_file.name}")
 
                         except Exception as e:
-                            st.error(f"❌ Error processing {uploaded_file.name}: {str(e)}")
+                            st.error(f"{ERROR_MESSAGES['upload']}: {uploaded_file.name}")
 
                         # Clean up temp file
                         try:
@@ -349,11 +324,127 @@ def _render_file_upload_sidebar():
                         st.session_state.processed_files.add((uploaded_file.name, len(uploaded_file.getvalue())))
 
                     if total_new_transactions > 0:
-                        st.success(f"🎉 Successfully added {total_new_transactions} new transactions!")
-                        st.info("🔄 Refreshing page to show new data...")
+                        st.success(f"{SUCCESS_MESSAGES['upload']} - {total_new_transactions} total")
                         st.rerun()
 
         st.divider()
+
+
+def _render_month_selector_sidebar():
+    """Render month selector in sidebar."""
+    with st.sidebar:
+        st.header("📅 Select Month")
+
+        # Get available months from database
+        with database.get_connection() as conn:
+            available_months = conn.execute(
+                """
+                SELECT DISTINCT
+                    strftime('%Y', date) as year,
+                    strftime('%m', date) as month,
+                    COUNT(*) as count
+                FROM transactions
+                GROUP BY strftime('%Y', date), strftime('%m', date)
+                ORDER BY year DESC, month DESC
+            """
+            ).fetchall()
+
+        if not available_months:
+            st.info(EMPTY_STATES["no_data"])
+            return
+
+        # Create month options as simple strings
+        month_options = []
+        for year, month, count in available_months:
+            date_obj = datetime(int(year), int(month), 1)
+            display_name = f"{date_obj.strftime('%B %Y')} ({count} transactions)"
+            month_options.append((display_name, int(year), int(month)))
+
+        # Get display names for selectbox
+        display_names = [option[0] for option in month_options]
+
+        selected_index = st.selectbox(
+            "Choose month:", options=range(len(display_names)), format_func=lambda x: display_names[x]
+        )
+
+        # Store in session state for access by tabs
+        st.session_state.current_year = month_options[selected_index][1]
+        st.session_state.current_month = month_options[selected_index][2]
+
+        st.divider()
+
+
+def _render_backup_export_sidebar():
+    """Render backup and export controls in sidebar."""
+    with st.sidebar:
+        st.header("💾 Backup & Export")
+
+        # Show last backup info
+        backups = database.get_backup_info()
+        if backups:
+            last_backup = backups[0]
+            st.caption(f"Last backup: {last_backup['created'].strftime('%b %d, %Y %I:%M %p')}")
+            st.caption(f"Size: {last_backup['size_mb']} MB")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("🔄 Backup Now", help="Create a manual backup of your database"):
+                with st.spinner(LOADING_MESSAGES["creating_backup"]):
+                    backup_path = database.create_backup()
+                    if backup_path:
+                        st.success(SUCCESS_MESSAGES["backup"])
+                        st.caption(f"{backup_path.name}")
+                    else:
+                        st.error(ERROR_MESSAGES["backup"])
+
+        with col2:
+            if st.button("📥 Export CSV", help="Export all transactions to CSV"):
+                from pathlib import Path
+
+                with st.spinner(LOADING_MESSAGES["exporting"]):
+                    # Create export file in data directory
+                    timestamp = database.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                    export_path = Path("data") / f"export_{timestamp}.csv"
+
+                    if database.export_all_transactions_to_csv(export_path):
+                        st.success(SUCCESS_MESSAGES["export"])
+
+                        # Offer download
+                        with open(export_path, "rb") as f:
+                            st.download_button(
+                                label="⬇️ Download Export",
+                                data=f,
+                                file_name=export_path.name,
+                                mime="text/csv",
+                            )
+                    else:
+                        st.error(ERROR_MESSAGES["export"])
+
+        # Show available backups in expander with restore buttons
+        if backups:
+            with st.expander(f"📂 View Backups ({len(backups)} available)"):
+                for i, backup in enumerate(backups):
+                    col1, col2 = st.columns([3, 1])
+
+                    with col1:
+                        st.text(
+                            f"{backup['filename']} - {backup['size_mb']} MB - {backup['created'].strftime('%b %d, %Y %I:%M %p')}"
+                        )
+
+                    with col2:
+                        # Use unique key for each restore button
+                        if st.button("🔄 Restore", key=f"restore_{i}", help="Restore from this backup"):
+                            with st.spinner(LOADING_MESSAGES["restoring"]):
+                                success = database.restore_from_backup(backup["path"])
+                                if success:
+                                    st.success(SUCCESS_MESSAGES["restore"])
+                                    st.rerun()
+                                else:
+                                    st.error(ERROR_MESSAGES["restore"])
+
+                    if i < len(backups) - 1:
+                        st.divider()
 
 
 def _render_calculation_breakdown(breakdown):

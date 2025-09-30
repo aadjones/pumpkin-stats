@@ -8,7 +8,7 @@ from typing import Dict, Tuple
 
 import pandas as pd
 
-from . import database
+from . import constants, database
 
 
 class TrendAnalyzer:
@@ -16,6 +16,14 @@ class TrendAnalyzer:
 
     def get_monthly_trends(self, months: int = 12) -> pd.DataFrame:
         """Get monthly spending, income, and net trends over the last N months."""
+        # Build income pattern SQL conditions from constants
+        income_conditions = " OR ".join(
+            [f"UPPER(description) LIKE '%{pattern}%'" for pattern in constants.INCOME_PATTERNS]
+        )
+
+        # Build excluded categories SQL condition
+        excluded_categories_sql = ", ".join([f"'{cat}'" for cat in constants.EXCLUDED_CATEGORIES])
+
         with database.get_connection() as conn:
             # Get monthly summaries for the last N months
             query = f"""
@@ -23,26 +31,17 @@ class TrendAnalyzer:
                 strftime('%Y', date) as year,
                 strftime('%m', date) as month,
                 CASE
-                    WHEN amount < 0 AND category NOT IN ('Transfers', 'Credit Card Payment')
+                    WHEN amount < 0 AND category NOT IN ({excluded_categories_sql})
                          AND COALESCE(exclude_from_budget, 0) = 0
                     THEN abs(amount)
                     ELSE 0
                 END as spending,
                 CASE
-                    WHEN amount > 0 AND category NOT IN ('Transfers', 'Credit Card Payment')
+                    WHEN amount > 0 AND category NOT IN ({excluded_categories_sql})
                          AND COALESCE(exclude_from_budget, 0) = 0
                          AND (
-                             UPPER(description) LIKE '%PAYROLL%' OR
-                             UPPER(description) LIKE '%DIRECT DEP%' OR
-                             UPPER(description) LIKE '%DIRECTDEP%' OR
-                             UPPER(description) LIKE '%REIMBURS%' OR
-                             UPPER(description) LIKE '%REFUND%' OR
-                             UPPER(description) LIKE '%CASHBACK%' OR
-                             UPPER(description) LIKE '%CASH BACK%' OR
-                             UPPER(description) LIKE '%GIFT%' OR
-                             UPPER(description) LIKE '%BONUS%' OR
-                             UPPER(description) LIKE '%INTEREST%' OR
-                             (UPPER(account) LIKE '%CREDIT%' AND amount < 100)
+                             {income_conditions} OR
+                             (UPPER(account) LIKE '%CREDIT%' AND amount < {constants.CREDIT_CARD_INCOME_THRESHOLD})
                          )
                     THEN amount
                     ELSE 0
@@ -72,6 +71,9 @@ class TrendAnalyzer:
 
     def get_top_category_trends(self, months: int = 12, top_n: int = 5) -> pd.DataFrame:
         """Get spending trends for top N spending categories over the last N months."""
+        # Build excluded categories SQL condition
+        excluded_categories_sql = ", ".join([f"'{cat}'" for cat in constants.EXCLUDED_CATEGORIES])
+
         with database.get_connection() as conn:
             # First, get the top spending categories overall
             top_categories_query = f"""
@@ -79,7 +81,7 @@ class TrendAnalyzer:
             FROM transactions
             WHERE date >= date('now', '-{months} months')
             AND amount < 0
-            AND category NOT IN ('Transfers', 'Credit Card Payment')
+            AND category NOT IN ({excluded_categories_sql})
             AND COALESCE(exclude_from_budget, 0) = 0
             GROUP BY category
             ORDER BY total_spending DESC
