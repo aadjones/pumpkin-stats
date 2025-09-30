@@ -188,15 +188,24 @@ def validate_transaction(txn: Dict[str, Any]) -> bool:
     return True
 
 
-def insert_transactions(transactions: List[Dict[str, Any]]) -> int:
-    """Insert transactions, avoiding duplicates. Returns count of new transactions."""
+def insert_transactions(transactions: List[Dict[str, Any]]) -> tuple[int, int, List[str]]:
+    """
+    Insert transactions, avoiding duplicates.
+
+    Returns:
+        (new_count, total_count, inserted_ids)
+    """
     new_count = 0
+    total_count = 0
+    inserted_ids = []
 
     with get_connection() as conn:
         for txn in transactions:
             # Validate transaction data
             if not validate_transaction(txn):
                 continue
+
+            total_count += 1
 
             txn_id = generate_transaction_id(txn["date"], txn["description"], txn["amount"], txn["account"])
 
@@ -222,8 +231,73 @@ def insert_transactions(transactions: List[Dict[str, Any]]) -> int:
                     ),
                 )
                 new_count += 1
+                inserted_ids.append(txn_id)
 
-    return new_count
+    return new_count, total_count, inserted_ids
+
+
+def delete_transactions_by_ids(transaction_ids: List[str]) -> int:
+    """
+    Delete transactions by their IDs.
+
+    Args:
+        transaction_ids: List of transaction IDs to delete
+
+    Returns:
+        Number of transactions deleted
+    """
+    if not transaction_ids:
+        return 0
+
+    with get_connection() as conn:
+        placeholders = ",".join("?" * len(transaction_ids))
+        cursor = conn.cursor()
+        cursor.execute(f"DELETE FROM transactions WHERE id IN ({placeholders})", transaction_ids)
+        return cursor.rowcount
+
+
+def delete_transactions_by_account(account_name: str) -> Dict[str, int]:
+    """
+    Delete all transactions for an account.
+
+    Returns dict with 'deleted' count and 'had_overrides' count.
+    Raises ValueError if account doesn't exist.
+    """
+    with get_connection() as conn:
+        # Check account exists
+        existing = conn.execute("SELECT COUNT(*) FROM transactions WHERE account = ?", (account_name,)).fetchone()[0]
+
+        if existing == 0:
+            raise ValueError(f"Account '{account_name}' not found")
+
+        # Check for manual overrides (warn user they'll lose work)
+        overrides = conn.execute(
+            """SELECT COUNT(*) FROM transactions
+               WHERE account = ?
+               AND (manual_override_type IS NOT NULL
+                    OR category_source = 'manual')""",
+            (account_name,),
+        ).fetchone()[0]
+
+        # Delete
+        conn.execute("DELETE FROM transactions WHERE account = ?", (account_name,))
+
+        return {"deleted": existing, "had_overrides": overrides}
+
+
+def get_accounts_with_counts() -> List[Dict[str, any]]:
+    """Get list of accounts with transaction counts."""
+    with get_connection() as conn:
+        results = conn.execute(
+            """
+            SELECT account, COUNT(*) as count
+            FROM transactions
+            GROUP BY account
+            ORDER BY account
+        """
+        ).fetchall()
+
+    return [{"account": row[0], "count": row[1]} for row in results]
 
 
 def get_transactions_by_month(year: int, month: int) -> pd.DataFrame:
@@ -436,6 +510,7 @@ def restore_from_backup(backup_path: Path) -> bool:
 def export_all_transactions_to_csv(output_path: Path) -> bool:
     """
     Export all transactions to a CSV file with all columns.
+    Automatically cleans up old exports (keeps last 5).
 
     Args:
         output_path: Path where CSV should be saved
@@ -474,6 +549,16 @@ def export_all_transactions_to_csv(output_path: Path) -> bool:
 
         # Export to CSV
         df.to_csv(output_path, index=False)
+
+        # Clean up old exports (keep last 5)
+        export_dir = output_path.parent
+        exports = sorted(export_dir.glob("export_*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old_export in exports[5:]:
+            try:
+                old_export.unlink()
+            except:
+                pass  # Ignore cleanup errors
+
         return True
 
     except Exception as e:

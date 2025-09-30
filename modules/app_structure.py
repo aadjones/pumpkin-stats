@@ -8,13 +8,14 @@ from datetime import datetime
 
 import streamlit as st
 
-from . import charts, database, finance_calculations
+from . import charts, database, feature_flags, finance_calculations
 from .pumpkin_quotes import (
     EMPTY_STATES,
     ERROR_MESSAGES,
     LOADING_MESSAGES,
     SUCCESS_MESSAGES,
 )
+from .transaction_overrides import TransactionOverrideManager
 from .trend_analysis import TrendAnalyzer
 from .trend_charts import (
     create_category_trends_chart,
@@ -133,9 +134,10 @@ def render_monthly_transactions_tab():
 
 def render_trend_analysis_tab():
     """Render trend analysis tab with optional time range selection."""
-    from . import feature_flags
-
     st.header("📈 Trends")
+
+    # Create trend analyzer
+    analyzer = TrendAnalyzer()
 
     # Time range selector (if feature flag enabled)
     if feature_flags.is_enabled("time_range_selector"):
@@ -150,14 +152,11 @@ def render_trend_analysis_tab():
     else:
         time_range = 12  # Default to 12 if feature disabled
 
-    # Create trend analyzer
-    analyzer = TrendAnalyzer()
-
     # Get trend data
     monthly_trends = analyzer.get_monthly_trends(months=time_range)
 
     if monthly_trends.empty:
-        st.info("Need at least 2 months of transaction data to show trends")
+        st.info(EMPTY_STATES["no_trends"])
         st.stop()
 
     # Monthly trends chart
@@ -193,8 +192,6 @@ def render_trend_analysis_tab():
 
 def _render_unified_transaction_table(current_year, current_month):
     """Render the unified transaction table with status badges and inline actions."""
-    from .transaction_overrides import TransactionOverrideManager
-
     st.subheader("Transaction Management")
 
     # Get transactions with status
@@ -328,8 +325,6 @@ def _render_unified_transaction_table(current_year, current_month):
 
 def render_main_app_tabs():
     """Organize and render the main app tab structure."""
-    from . import feature_flags
-
     # Sidebar sections in order
     _render_file_upload_sidebar()
 
@@ -352,11 +347,16 @@ def _render_file_upload_sidebar():
     with st.sidebar:
         st.header("📁 Upload New Data")
 
+        # Use counter in key to clear uploader after successful upload
+        if "upload_counter" not in st.session_state:
+            st.session_state.upload_counter = 0
+
         uploaded_files = st.file_uploader(
             "Upload CSV files to add new transactions",
             type=["csv"],
             accept_multiple_files=True,
             help="Upload bank or credit card CSV files. Files are processed automatically.",
+            key=f"file_uploader_{st.session_state.upload_counter}",
         )
 
         if uploaded_files:
@@ -379,25 +379,30 @@ def _render_file_upload_sidebar():
 
             if new_files:
                 with st.spinner(LOADING_MESSAGES["processing_files"]):
-                    total_new_transactions = 0
+                    import tempfile
+
+                    all_inserted_ids = []
 
                     for uploaded_file in new_files:
-                        # Save uploaded file temporarily
-                        import tempfile
-
-                        temp_path = tempfile.mktemp(suffix=".csv")
-                        with open(temp_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
+                        # Use NamedTemporaryFile for safer temp file handling
+                        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+                            tmp.write(uploaded_file.getbuffer())
+                            temp_path = Path(tmp.name)
 
                         # Process the file (pass original filename for account naming)
                         try:
-                            transactions = data_ingestion.process_csv_file(Path(temp_path), uploaded_file.name)
+                            transactions = data_ingestion.process_csv_file(temp_path, uploaded_file.name)
 
                             if transactions:
-                                # Insert transactions into database using the proper function
-                                new_count = database.insert_transactions(transactions)
-                                total_new_transactions += new_count
-                                st.success(f"{SUCCESS_MESSAGES['upload']}: {new_count} new from {uploaded_file.name}")
+                                # Insert transactions into database
+                                new_count, total_count, inserted_ids = database.insert_transactions(transactions)
+                                all_inserted_ids.extend(inserted_ids)
+
+                                # Show detailed feedback
+                                st.success(f"✅ Imported {new_count} new transactions from {uploaded_file.name}")
+                                if total_count > new_count:
+                                    skipped = total_count - new_count
+                                    st.info(f"ℹ️ Skipped {skipped} duplicate{'s' if skipped > 1 else ''}")
                             else:
                                 st.warning(f"⚠️ No valid transactions found in {uploaded_file.name}")
 
@@ -406,18 +411,77 @@ def _render_file_upload_sidebar():
 
                         # Clean up temp file
                         try:
-                            os.remove(temp_path)
+                            temp_path.unlink(missing_ok=True)
                         except:
                             pass
 
                         # Mark this file as processed
                         st.session_state.processed_files.add((uploaded_file.name, len(uploaded_file.getvalue())))
 
-                    if total_new_transactions > 0:
-                        st.success(f"{SUCCESS_MESSAGES['upload']} - {total_new_transactions} total")
+                    # Clear uploader and rerun to show updated data
+                    if all_inserted_ids:
+                        st.session_state.upload_counter += 1
                         st.rerun()
 
         st.divider()
+
+        # Account Management
+        st.header("⚙️ Data Management")
+
+        accounts = database.get_accounts_with_counts()
+
+        if accounts:
+            # Default to expanded so it doesn't collapse after delete
+            with st.expander(f"Manage Accounts ({len(accounts)} accounts)", expanded=True):
+                st.write("Delete transactions by account. **This cannot be undone.**")
+
+                for account_info in accounts:
+                    account_name = account_info["account"]
+                    count = account_info["count"]
+
+                    col1, col2 = st.columns([2.5, 1.5])
+
+                    with col1:
+                        st.write(f"**{account_name}**")
+                        st.caption(f"{count} transaction{'s' if count != 1 else ''}")
+
+                    with col2:
+                        if st.button(
+                            "Delete", key=f"delete_account_{account_name}", type="secondary", use_container_width=True
+                        ):
+                            st.session_state[f"confirm_delete_{account_name}"] = True
+
+                    # Show confirmation dialog if delete was clicked
+                    if st.session_state.get(f"confirm_delete_{account_name}"):
+                        st.warning(f"⚠️ Delete **{count} transactions** from **{account_name}**? This cannot be undone.")
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("Yes, Delete", key=f"confirm_yes_{account_name}", type="primary"):
+                                try:
+                                    result = database.delete_transactions_by_account(account_name)
+                                    deleted = result["deleted"]
+                                    had_overrides = result["had_overrides"]
+
+                                    msg = f"✅ Deleted {deleted} transactions from {account_name}"
+                                    if had_overrides > 0:
+                                        msg += f" ({had_overrides} had manual edits)"
+
+                                    st.success(msg)
+                                    del st.session_state[f"confirm_delete_{account_name}"]
+                                    st.rerun()
+                                except ValueError as e:
+                                    st.error(str(e))
+                                    del st.session_state[f"confirm_delete_{account_name}"]
+
+                        with col2:
+                            if st.button("Cancel", key=f"confirm_no_{account_name}"):
+                                del st.session_state[f"confirm_delete_{account_name}"]
+                                st.rerun()
+
+                    st.divider()
+        else:
+            st.info("No accounts found. Did Pumpkin eat your data?")
 
 
 def _render_backup_export_sidebar():

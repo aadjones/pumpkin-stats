@@ -13,7 +13,8 @@
       "Bash(env/bin/pip install:*)",
       "mcp__ide__getDiagnostics",
       "Bash(make:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(timeout 10 streamlit run app.py)"
     ],
     "deny": [],
     "ask": []

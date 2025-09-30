@@ -96,4 +96,5 @@ EMPTY_STATES = {
     "no_transactions": "💤 No spending? Pumpkin is suspicious...",
     "no_backups": "🦴 No buried data yet. Pumpkin waits.",
     "no_data": "📁 Upload something. Pumpkin is impatient.",
+    "no_trends": "📊 Pumpkin needs more data to judge your patterns. Upload at least 2 months of transactions.",
 }
