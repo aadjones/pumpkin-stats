@@ -29,7 +29,7 @@ function Setup {
     if (!(Test-Path ".git")) {
         Write-Host "🔧 Initializing Git repo..."
         git init
-        git checkout -b main 2>$null
+        git checkout -b main 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
             git switch -c main
         }
