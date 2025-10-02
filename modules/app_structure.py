@@ -466,6 +466,11 @@ def _render_file_upload_sidebar():
                                         msg += f" ({had_overrides} had manual edits)"
 
                                     st.success(msg)
+
+                                    # Clear processed files tracking so user can reupload the same file
+                                    if "processed_files" in st.session_state:
+                                        st.session_state.processed_files = set()
+
                                     del st.session_state[f"confirm_delete_{account_name}"]
                                     st.rerun()
                                 except ValueError as e:

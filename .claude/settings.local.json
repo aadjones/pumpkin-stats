@@ -16,7 +16,9 @@
       "Bash(cat:*)",
       "Bash(timeout 10 streamlit run app.py)",
       "Bash(source:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(PYTHONPATH=. env/bin/pytest tests/test_database.py::TestTransactionLifecycle::test_delete_account_allows_reupload -v)",
+      "Bash(PYTHONPATH=. env/bin/pytest tests/test_database.py -v)"
     ],
     "deny": [],
     "ask": []
