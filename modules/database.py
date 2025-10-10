@@ -142,7 +142,14 @@ def generate_transaction_id(date: str, description: str, amount: float, account:
     """
     Generate unique ID for transaction to avoid duplicates.
 
-    Normalizes description and amount to catch duplicates even when formatting varies.
+    Uses date + description + amount + account as the unique key.
+    Account names are normalized during CSV upload (via parse_account_info) to ensure
+    that filenames with different date suffixes produce the same account name.
+
+    This means:
+    - Two $100 ATM withdrawals on the same day are treated as separate transactions (correct!)
+    - Uploading "chase-july.csv" and "chase-august.csv" produces the same account name,
+      so overlapping transactions are properly deduplicated
     """
     # Normalize description: uppercase, strip whitespace, collapse multiple spaces
     normalized_desc = str(description).upper().strip()

@@ -18,7 +18,13 @@
       "Bash(source:*)",
       "Bash(git log:*)",
       "Bash(PYTHONPATH=. env/bin/pytest tests/test_database.py::TestTransactionLifecycle::test_delete_account_allows_reupload -v)",
-      "Bash(PYTHONPATH=. env/bin/pytest tests/test_database.py -v)"
+      "Bash(PYTHONPATH=. env/bin/pytest tests/test_database.py -v)",
+      "Bash(PYTHONPATH=. env/bin/pytest tests/test_database.py::TestTransactionLifecycle::test_duplicate_detection_works_normally -v)",
+      "Bash(PYTHONPATH=. env/bin/pytest tests/test_database.py::TestTransactionLifecycle::test_overlapping_csv_uploads -v)",
+      "Bash(PYTHONPATH=. env/bin/pytest tests/test_database.py::TestTransactionLifecycle::test_same_transaction_different_accounts_creates_duplicates -v)",
+      "Bash(PYTHONPATH=. env/bin/pytest tests/test_data_ingestion.py::TestAccountParsing -v)",
+      "Bash(PYTHONPATH=. env/bin/pytest tests/test_data_ingestion.py -v)",
+      "Bash(PYTHONPATH=. env/bin/pytest tests/test_database.py tests/test_data_ingestion.py -v)"
     ],
     "deny": [],
     "ask": []

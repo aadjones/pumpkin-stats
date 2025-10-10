@@ -101,3 +101,80 @@ class TestTransactionLifecycle:
         with database.get_connection() as conn:
             count = conn.execute("SELECT COUNT(*) FROM transactions WHERE account = ?", ("Test Account",)).fetchone()[0]
             assert count == 1, "Should have exactly 1 transaction (no duplicates)"
+
+    def test_overlapping_csv_uploads(self):
+        """
+        Test the scenario where two CSV files contain some overlapping transactions.
+        This reproduces the bug where duplicate transactions are double-counted.
+        """
+        # First CSV with transactions from Jan 1-15
+        csv1_transactions = [
+            {
+                "date": "2024-01-01",
+                "description": "Coffee Shop",
+                "amount": -4.50,
+                "account": "Test Account",
+                "category": "Food & drink",
+            },
+            {
+                "date": "2024-01-05",
+                "description": "Gas Station",
+                "amount": -45.00,
+                "account": "Test Account",
+                "category": "Automotive",
+            },
+            {
+                "date": "2024-01-15",
+                "description": "Grocery Store",
+                "amount": -120.50,
+                "account": "Test Account",
+                "category": "Groceries",
+            },
+        ]
+
+        # Second CSV with transactions from Jan 10-20 (overlaps with Jan 15 from first CSV)
+        csv2_transactions = [
+            {
+                "date": "2024-01-10",
+                "description": "Restaurant",
+                "amount": -35.00,
+                "account": "Test Account",
+                "category": "Food & drink",
+            },
+            {
+                "date": "2024-01-15",  # DUPLICATE from CSV1
+                "description": "Grocery Store",
+                "amount": -120.50,
+                "account": "Test Account",
+                "category": "Groceries",
+            },
+            {
+                "date": "2024-01-20",
+                "description": "Pet Store",
+                "amount": -50.00,
+                "account": "Test Account",
+                "category": "Pumpkin",
+            },
+        ]
+
+        # Upload first CSV
+        new_count, total_count, _ = database.insert_transactions(csv1_transactions)
+        assert new_count == 3, "Should insert 3 new transactions from first CSV"
+        assert total_count == 3, "Should process 3 total transactions"
+
+        # Upload second CSV with overlapping data
+        new_count, total_count, _ = database.insert_transactions(csv2_transactions)
+        assert new_count == 2, "Should insert only 2 new transactions (excluding duplicate)"
+        assert total_count == 3, "Should process 3 transactions from second CSV"
+
+        # Verify total count is correct (no double counting)
+        with database.get_connection() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM transactions WHERE account = ?", ("Test Account",)).fetchone()[0]
+            assert count == 5, "Should have exactly 5 unique transactions (3 from CSV1 + 2 new from CSV2)"
+
+            # Verify the duplicate transaction exists only once
+            grocery_count = conn.execute(
+                "SELECT COUNT(*) FROM transactions WHERE description = ? AND date = ?",
+                ("Grocery Store", "2024-01-15"),
+            ).fetchone()[0]
+            assert grocery_count == 1, "Grocery Store transaction should exist exactly once"

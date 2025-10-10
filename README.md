@@ -48,3 +48,19 @@ Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 - **Transfer Detection**: Excludes credit card payments and account transfers from spending
 - **Manual Overrides**: Edit categories and exclude transactions from budget calculations
 - **Monthly Analysis**: Spending breakdown by category with visual charts
+
+## Important: Handling Overlapping Data
+
+**Duplicate detection works based on: date + description + amount + account name.**
+
+If you upload multiple CSV files with overlapping transactions (e.g., downloading July and August separately, both containing July 31st transactions):
+
+- **If the files have the same name pattern** (e.g., `chase-july.csv` and `chase-aug.csv`), duplicates are automatically detected ✅
+- **If the files have different names** (e.g., `Chase_Download_20240701.csv` and `Chase_Statement_August.csv`), they will be treated as separate accounts and duplicates will NOT be detected ❌
+
+**Best practice:** If you need to re-upload data for the same account:
+1. Go to the sidebar "Data Management" section
+2. Delete the old account
+3. Upload the new CSV file with the full date range
+
+This ensures no duplicate counting and keeps your data clean.
